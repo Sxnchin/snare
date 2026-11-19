@@ -6,3 +6,4 @@
 deploy/compose/.env
 deploy/compose/secrets/
 bench/results/*.tmp
+deploy/compose/run/

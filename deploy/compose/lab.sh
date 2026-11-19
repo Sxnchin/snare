@@ -196,6 +196,11 @@ test_containment() {
   pass() { printf '  PASS  %s\n' "$*"; }
   fail() { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
   echo "containment audit"
+  # The Playwright runner exists only during a traffic run; start an idle one
+  # (auto-removed when it exits) so the audit covers it too.
+  "${COMPOSE[@]}" --profile traffic build -q playwright
+  local pw
+  pw=$("${COMPOSE[@]}" --profile traffic run -d --rm --no-deps --entrypoint sleep playwright 300)
   artex=$("${COMPOSE[@]}" ps -q artex)
   [[ -n $artex ]] || die "artex is not running"
   nets=$(docker inspect "$artex" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}')
@@ -234,6 +239,10 @@ test_containment() {
   if "${COMPOSE[@]}" exec -T snare /usr/local/bin/snare healthcheck -url https://example.com/ >/dev/null 2>&1; then
     fail "snare can fetch https://example.com"
   else pass "snare cannot fetch https://example.com"; fi
+  if docker exec "$pw" node -e "fetch('https://example.com').then(()=>process.exit(0),()=>process.exit(1))" >/dev/null 2>&1; then
+    fail "playwright can fetch https://example.com"
+  else pass "playwright cannot fetch https://example.com"; fi
+  docker stop -t 1 "$pw" >/dev/null 2>&1 || true
   (( fails == 0 )) || die "containment audit: $fails check(s) failed"
   log "containment audit passed"
 }
@@ -282,6 +291,44 @@ test_pivot() {
   log "pivot test passed"
 }
 
+# traffic runs the Playwright happy-path suite through Snare's gateway.
+traffic() {
+  mkdir -p run/playwright
+  "${COMPOSE[@]}" --profile traffic build playwright
+  "${COMPOSE[@]}" --profile traffic run --rm playwright "$@"
+}
+
+# jval prints a top-level string value from a flat JSON file.
+jval() { sed -n "s/^ *\"$1\": \"\(.*\)\",\{0,1\}$/\1/p" "$2" | head -1; }
+
+# corpus_check dumps every stored exchange of the juice-shop route (already
+# redacted, decrypted by Snare) and fails if any value the Playwright suite
+# typed in appears in it.
+corpus_check() {
+  local fails=0 dump n key v typed files=()
+  for typed in run/playwright/typed-values-*.json; do [[ -f $typed ]] && files+=("$typed"); done
+  (( ${#files[@]} > 0 )) || die "no typed values under run/playwright; run ./lab.sh traffic first"
+  dump=$("${COMPOSE[@]}" exec -T snare /usr/local/bin/snare corpus dump -config /etc/snare/snare.yaml -route juice-shop)
+  n=$(grep -c '"id":' <<<"$dump" || true)
+  echo "corpus check: $n stored exchanges on route juice-shop, ${#files[@]} Playwright run(s)"
+  (( n > 0 )) || die "the corpus is empty"
+  for typed in "${files[@]}"; do
+    for key in email password answer card name street mobile cardName; do
+      v=$(jval "$key" "$typed")
+      [[ -n $v ]] || { printf '  FAIL  %s: typed value %s missing\n' "$typed" "$key"; fails=$((fails + 1)); continue; }
+      if grep -qF -- "$v" <<<"$dump"; then
+        printf '  FAIL  %s: typed %s found in the stored corpus\n' "${typed##*/}" "$key"; fails=$((fails + 1))
+      fi
+    done
+  done
+  (( fails == 0 )) && printf '  PASS  none of the %d typed values per run (email, password, security answer, card, name, street, mobile, card holder) is in the stored corpus\n' 8
+  local kinds
+  kinds=$(grep -o '\[REDACTED:[a-z]*\]' <<<"$dump" | sort | uniq -c | awk '{printf "%s %s, ", $2, $1}')
+  echo "  redaction placeholders: ${kinds%, }"
+  (( fails == 0 )) || die "corpus check: $fails value(s) stored unredacted"
+  log "corpus check passed"
+}
+
 # test_login runs the Go client's integration test against the real ARTEX.
 test_login() {
   (cd ../.. && SNARE_LAB_ARTEX_URL=$ARTEX_API \
@@ -313,7 +360,18 @@ case $cmd in
   test-egress) ensure_env; test_egress; test_containment; test_pivot ;;
   test-login) ensure_env; test_login ;;
   test) ensure_env; check_snare; test_egress; test_containment; test_pivot; test_login ;;
+  traffic) ensure_env; traffic "$@" ;;
+  latency)
+    # Same Juice Shop request directly and through Snare's gateway, from a
+    # throwaway container on the lab network (route in record mode).
+    ensure_env
+    path=${1:-/rest/products/search?q=apple}
+    "${COMPOSE[@]}" run --rm --no-deps --entrypoint /usr/local/bin/labnet snare latency \
+      -direct "http://juice-shop:3000$path" -gateway "http://snare:8000$path" -n "${2:-2000}"
+    ;;
+  corpus-check) ensure_env; corpus_check ;;
+  coverage) ensure_env; "${COMPOSE[@]}" exec -T snare /usr/local/bin/snare corpus coverage -config /etc/snare/snare.yaml "$@" ;;
   logs) ensure_env; "${COMPOSE[@]}" logs "$@" ;;
   down) ensure_env; "${COMPOSE[@]}" down "$@" ;;
-  *) echo "usage: $0 up | down [-v] | status | check | test | test-egress | test-login | bootstrap | logs [service]" >&2; exit 2 ;;
+  *) echo "usage: $0 up | down [-v] | status | check | test | test-egress | test-login | traffic | corpus-check | coverage | latency [path] [n] | bootstrap | logs [service]" >&2; exit 2 ;;
 esac

@@ -17,9 +17,10 @@ artifacts:
 In front of production it runs a passive layer: traffic recording, agent
 detection, honeytokens, decoys, and credential rotation.
 
-**Status: early development (milestone M0 of M8).** The foundation is in
-place: configuration, state store, the compose lab with ARTEX and OWASP Juice
-Shop, and CI. The gateway, detector, compiler and the rest are not built yet.
+**Status: early development (milestone M1 of M8).** Working today: the
+compose lab with a contained ARTEX and OWASP Juice Shop, and the gateway in
+front of Juice Shop recording a redacted, encrypted benign corpus. The
+detector, compiler, validation gate, tarpit and the rest are not built yet.
 Do not deploy Snare in front of anything real.
 
 ## What Snare is not
@@ -65,6 +66,51 @@ from inside the ARTEX container (including a pivot attempt through Juice
 Shop's SSRF) and logs Snare's ARTEX client in to the real
 container. No LLM key is configured by the lab; set one in
 `deploy/compose/.env` yourself.
+
+Recording legitimate traffic (milestone M1):
+
+```sh
+./lab.sh traffic        # Playwright happy path through Snare: register, log in, search, basket, checkout
+./lab.sh corpus-check   # fail if any value the suite typed in was stored unredacted
+./lab.sh coverage       # per-route corpus coverage: endpoints, methods, statuses, parameter names
+./lab.sh latency '/rest/products/search?q=apple'   # gateway overhead against the real Juice Shop
+```
+
+## Gateway overhead
+
+Measured 2026-11-18 on the lab machine (Apple silicon, Docker Desktop).
+Details and method: [bench/results/2026-11-18-gateway-overhead.md](bench/results/2026-11-18-gateway-overhead.md).
+
+| Measurement | added p50 | added p99 |
+| --- | --- | --- |
+| In-process, pass-through (`go run ./bench/overhead`) | 0.04 ms | 0.09 ms |
+| In-process, record mode (redact, encrypt, store) | 0.04 ms | 0.10 ms |
+| Lab, Juice Shop API search, record mode | 0.00 ms | 0.31 ms |
+| Lab, Juice Shop static image, record mode | 0.07 ms | 0.26 ms |
+
+The target is under 5 ms at p50. Coraza rules are not in the path yet (M4);
+the numbers will be measured again then.
+
+## What is recorded, and how
+
+Routes in `record` mode store request and response pairs for a learning
+period (72 hours by default) as the benign corpus that rules are validated
+against later. Before anything is written:
+
+- credentials are removed: `Authorization`, `Cookie` and `Set-Cookie` values,
+  token headers, and password, token, key, session and similar fields in JSON,
+  forms and query strings;
+- personal data is removed: email addresses, card numbers (Luhn-checked),
+  name, phone, address and date-of-birth fields;
+- JWTs, bearer tokens and API-key-like strings are removed anywhere in text;
+- compressed bodies are decoded first, and anything that cannot be decoded is
+  not stored.
+
+The redacted exchange is then encrypted with AES-256-GCM. Snare refuses to
+start if encrypted data exists and the key is missing or wrong. No client
+address is stored. Traffic the detector flags as agent-like is excluded
+(from M2). The full rules are in `docs/ASSUMPTIONS.md`. Add your own header
+and field names under `recorder.redact` in `snare.yaml`.
 
 ## Building and testing
 

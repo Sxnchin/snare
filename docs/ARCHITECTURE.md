@@ -46,10 +46,11 @@ flowchart LR
 | --- | --- | --- |
 | `internal/config` | Load `snare.yaml`, apply `SNARE_*` overrides, validate with all problems listed at once | M0, done |
 | `internal/store` | SQLite (`modernc.org/sqlite`, no CGO), embedded numbered migrations, secret files | M0, done |
-| `internal/ui` | Authenticated API (`/api/status`), unauthenticated `/healthz`; htmx UI later | M0 partial, M8 |
+| `internal/ui` | Authenticated API (`/api/status`, `/api/corpus/coverage`), unauthenticated `/healthz`; htmx UI later | partial, M8 |
 | `internal/artex` | ARTEX client. M0: health, auth status, login, session check | M0 partial, M3 |
-| `internal/gateway` | Reverse proxy, per-route modes, Coraza, hard limits | M1 |
-| `internal/recorder` | Redaction, AES-256-GCM at rest, HAR and Playwright import, coverage | M1 |
+| `internal/gateway` | Reverse proxy, routing, hard limits, per-source caps, capture for recording; Coraza in M4 | M1, done |
+| `internal/recorder` | Redaction, AES-256-GCM at rest, learning period, HAR import, coverage | M1, done |
+| `internal/labnet` | Lab-only network helpers: egress allowlist proxy, fixed forwarders, latency comparison | M0/M1, done |
 | `internal/detect` | Deterministic, explainable agent-likelihood score | M2 |
 | `internal/compiler` | Finding plus proving exchange to a narrow SecLang rule, or a ticket | M4 |
 | `internal/gate` | Promotion state machine, replay, soak, rollback | M4 |

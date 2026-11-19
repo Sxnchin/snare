@@ -1,9 +1,10 @@
 // Package ui serves Snare's authenticated API and, from M8, its htmx UI.
 //
-// M0 exposes:
+// Endpoints so far:
 //
-//	GET /healthz      unauthenticated liveness: process up and store reachable
-//	GET /api/status   authenticated: version, schema version, ARTEX reachability
+//	GET /healthz              unauthenticated liveness: process up and store reachable
+//	GET /api/status           authenticated: version, schema, ARTEX, gateway and corpus counters
+//	GET /api/corpus/coverage  authenticated: per-route corpus coverage
 package ui
 
 import (
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/snare-dev/snare/internal/artex"
+	"github.com/snare-dev/snare/internal/gateway"
+	"github.com/snare-dev/snare/internal/recorder"
 	"github.com/snare-dev/snare/internal/store"
 )
 
@@ -25,6 +28,10 @@ type Server struct {
 	APIToken string
 	Version  string
 	Active   bool
+
+	Gateway  *gateway.Gateway   // nil when no gateway runs
+	Recorder *recorder.Recorder // nil when recording is off
+	Routes   []string           // configured route names, for coverage of empty routes
 }
 
 // Handler returns the routed handler.
@@ -32,6 +39,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.Handle("GET /api/status", s.requireToken(http.HandlerFunc(s.status)))
+	mux.Handle("GET /api/corpus/coverage", s.requireToken(http.HandlerFunc(s.coverage)))
 	return securityHeaders(mux)
 }
 
@@ -62,12 +70,33 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "store unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"version":        s.Version,
 		"schema_version": schema,
 		"mode":           map[string]any{"passive": true, "active": s.Active},
 		"artex":          s.artexStatus(ctx),
-	})
+	}
+	if s.Gateway != nil {
+		out["gateway"] = s.Gateway.Stats()
+	}
+	if s.Recorder != nil {
+		stored, dropped := s.Recorder.Stats()
+		out["corpus"] = map[string]any{"stored": stored, "dropped": dropped}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) coverage(w http.ResponseWriter, r *http.Request) {
+	if s.Recorder == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "recording is not configured"})
+		return
+	}
+	cov, err := s.Recorder.Coverage(r.Context(), s.Routes)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "coverage query failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"routes": cov})
 }
 
 func (s *Server) artexStatus(ctx context.Context) ArtexStatus {

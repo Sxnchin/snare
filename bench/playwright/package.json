@@ -1,0 +1,12 @@
+{
+  "name": "snare-lab-playwright",
+  "private": true,
+  "description": "Scripted legitimate traffic for the Snare lab (Juice Shop happy path).",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1"
+  }
+}

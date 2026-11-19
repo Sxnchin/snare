@@ -13,7 +13,7 @@
 # The only exceptions are egress (allowlisted LLM hosts) and artex-ui (dials
 # only artex:8787). lab.sh test-egress audits this.
 #
-#   lab          internal  artex, juice-shop, snare (and playwright from M1)
+#   lab          internal  artex, juice-shop, snare, playwright (on demand)
 #   artex-db     internal  artex, postgres
 #   llm-egress   internal  artex, egress   (ARTEX_LLM_PROXY=http://egress:3128)
 #   artex-admin  internal  artex, artex-ui
@@ -176,6 +176,23 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+
+  # Scripted legitimate traffic (bench/playwright). Internal lab network
+  # only: it can reach Snare's gateway and nothing on the internet. Runs on
+  # demand: ./lab.sh traffic
+  playwright:
+    build:
+      context: ../../bench/playwright
+    image: snare-lab/playwright:1.65.1
+    profiles: ["traffic"]
+    networks: [lab]
+    environment:
+      BASE_URL: ${PLAYWRIGHT_BASE_URL:-http://snare:8000}
+    volumes:
+      - ./run/playwright:/results
+    depends_on:
+      snare:
+        condition: service_healthy
 
   # Fixed-destination forwarder that publishes Snare's ports on host
   # loopback. It shares only snare-admin with Snare, so ARTEX cannot reach it.

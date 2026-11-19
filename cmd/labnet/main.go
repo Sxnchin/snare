@@ -3,6 +3,7 @@
 //	labnet egress  -listen :3128 -allow "api.openai.com,api.anthropic.com"
 //	labnet forward -map :8787=artex:8787 [-map :8000=snare:8000 ...]
 //	labnet probe   -url http://127.0.0.1:3128/healthz   (container healthcheck)
+//	labnet latency -direct URL -gateway URL [-n 2000]    (gateway overhead in the lab)
 package main
 
 import (
@@ -37,6 +38,8 @@ func main() {
 		err = forward(ctx, os.Args[2:], log)
 	case "probe":
 		err = probe(os.Args[2:])
+	case "latency":
+		err = latency(ctx, os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
@@ -97,6 +100,30 @@ func forward(ctx context.Context, args []string, log *slog.Logger) error {
 		go func() { errc <- (&labnet.Forward{To: to, Log: log}).Serve(ctx, ln) }()
 	}
 	return <-errc
+}
+
+// latency compares the same request sent directly and through the gateway.
+func latency(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("latency", flag.ExitOnError)
+	direct := fs.String("direct", "", "URL served directly by the app")
+	via := fs.String("gateway", "", "the same URL through Snare's gateway")
+	n := fs.Int("n", 2000, "requests to each URL")
+	warmup := fs.Int("warmup", 200, "warmup requests to each URL")
+	_ = fs.Parse(args)
+	if *direct == "" || *via == "" {
+		return fmt.Errorf("-direct and -gateway are required")
+	}
+	c := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{MaxIdleConnsPerHost: 4, DisableCompression: true}}
+	d, g, err := labnet.Compare(ctx, c, *direct, *via, *n, *warmup)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("requests per side: %d (interleaved, sequential, keep-alive)\n", d.N)
+	fmt.Printf("%-10s %8s %8s %8s\n", "", "p50 ms", "p95 ms", "p99 ms")
+	fmt.Printf("%-10s %8s %8s %8s\n", "direct", labnet.Ms(d.P50), labnet.Ms(d.P95), labnet.Ms(d.P99))
+	fmt.Printf("%-10s %8s %8s %8s\n", "gateway", labnet.Ms(g.P50), labnet.Ms(g.P95), labnet.Ms(g.P99))
+	fmt.Printf("%-10s %8s %8s %8s\n", "added", labnet.Ms(g.P50-d.P50), labnet.Ms(g.P95-d.P95), labnet.Ms(g.P99-d.P99))
+	return nil
 }
 
 // probe succeeds when something answers HTTP at url (any status).

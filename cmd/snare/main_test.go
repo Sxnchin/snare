@@ -42,6 +42,7 @@ func TestServeAndHealthcheck(t *testing.T) {
 	cfg.Server.Listen = addr
 	cfg.Server.APITokenFile = filepath.Join(dir, "api.token")
 	cfg.Store.Path = filepath.Join(dir, "snare.db")
+	cfg.Secrets.KeyFile = filepath.Join(dir, "secret.key")
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}

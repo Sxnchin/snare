@@ -50,12 +50,13 @@ func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(),
 
 // Config is the full Snare configuration.
 type Config struct {
-	Server  Server  `yaml:"server"`
-	Store   Store   `yaml:"store"`
-	Secrets Secrets `yaml:"secrets"`
-	Gateway Gateway `yaml:"gateway"`
-	Artex   Artex   `yaml:"artex"`
-	Active  Active  `yaml:"active"`
+	Server   Server   `yaml:"server"`
+	Store    Store    `yaml:"store"`
+	Secrets  Secrets  `yaml:"secrets"`
+	Gateway  Gateway  `yaml:"gateway"`
+	Recorder Recorder `yaml:"recorder"`
+	Artex    Artex    `yaml:"artex"`
+	Active   Active   `yaml:"active"`
 }
 
 // Server is Snare's own API and UI listener.
@@ -86,6 +87,28 @@ type Gateway struct {
 	Listen string  `yaml:"listen"`
 	Routes []Route `yaml:"routes"`
 	Limits Limits  `yaml:"limits"`
+	// TrustedProxies are CIDRs of reverse proxies in front of Snare. Only
+	// for a peer in this list is X-Forwarded-For used to find the client.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+}
+
+// Recorder configures the benign corpus.
+type Recorder struct {
+	// LearningPeriod is how long a route in record mode stores traffic,
+	// counted from the first stored exchange on that route.
+	LearningPeriod Duration `yaml:"learning_period"`
+	// MaxBodyBytes is how much of each request and response body is kept.
+	MaxBodyBytes int `yaml:"max_body_bytes"`
+	// QueueSize bounds exchanges waiting to be written. When it is full,
+	// exchanges are dropped (and counted) rather than slowing traffic.
+	QueueSize int    `yaml:"queue_size"`
+	Redact    Redact `yaml:"redact"`
+}
+
+// Redact lists additions to the built-in redaction rules.
+type Redact struct {
+	Headers    []string `yaml:"headers"`
+	JSONFields []string `yaml:"json_fields"`
 }
 
 // Route maps incoming requests to one upstream.
@@ -156,6 +179,11 @@ func Default() Config {
 				MaxConcurrent:       1024,
 				MaxPerSource:        64,
 			},
+		},
+		Recorder: Recorder{
+			LearningPeriod: Duration(72 * time.Hour),
+			MaxBodyBytes:   256 << 10,
+			QueueSize:      4096,
 		},
 		Artex: Artex{
 			Username: "ARTEX",
@@ -246,6 +274,20 @@ func (c Config) Validate() error {
 	}
 	if l.MaxPerSource > l.MaxConcurrent {
 		add("gateway.limits.max_per_source (%d) exceeds max_concurrent (%d)", l.MaxPerSource, l.MaxConcurrent)
+	}
+	for i, cidr := range c.Gateway.TrustedProxies {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			add("gateway.trusted_proxies[%d]: %q is not a CIDR", i, cidr)
+		}
+	}
+	if c.Recorder.LearningPeriod <= 0 {
+		add("recorder.learning_period: must be positive")
+	}
+	if c.Recorder.MaxBodyBytes < 0 || c.Recorder.MaxBodyBytes > 16<<20 {
+		add("recorder.max_body_bytes: must be between 0 and 16 MiB")
+	}
+	if c.Recorder.QueueSize <= 0 {
+		add("recorder.queue_size: must be positive")
 	}
 	names := map[string]bool{}
 	for i, r := range c.Gateway.Routes {

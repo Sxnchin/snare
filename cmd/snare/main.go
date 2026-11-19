@@ -16,6 +16,8 @@ import (
 
 	"github.com/snare-dev/snare/internal/artex"
 	"github.com/snare-dev/snare/internal/config"
+	"github.com/snare-dev/snare/internal/gateway"
+	"github.com/snare-dev/snare/internal/recorder"
 	"github.com/snare-dev/snare/internal/store"
 	"github.com/snare-dev/snare/internal/ui"
 )
@@ -29,6 +31,10 @@ Usage:
   snare serve [-config snare.yaml]      run the gateway, API and UI
   snare config check [-config FILE]     validate configuration and exit
   snare config env                      list supported SNARE_* overrides
+  snare corpus coverage [-config FILE] [-json]          per-route corpus coverage
+  snare corpus import-har -route NAME [-host H,...] F.har  import a HAR file into the corpus
+  snare corpus show [-config FILE] ID                    print one stored (redacted) exchange
+  snare corpus dump -route NAME                          print every stored exchange of a route (redacted)
   snare healthcheck [-url URL]          probe a running instance (for containers)
   snare version
 
@@ -53,6 +59,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdServe(args[1:], stderr)
 	case "config":
 		return cmdConfig(args[1:], stdout, stderr)
+	case "corpus":
+		return cmdCorpus(args[1:], stdout, stderr)
 	case "healthcheck":
 		return cmdHealthcheck(args[1:], stderr)
 	case "version", "-version", "--version":
@@ -162,6 +170,21 @@ func cmdServe(args []string, stderr io.Writer) int {
 	return 0
 }
 
+// newRecorder opens the encryption key and builds the corpus recorder.
+func newRecorder(ctx context.Context, cfg config.Config, st *store.Store, log *slog.Logger) (*recorder.Recorder, error) {
+	sealer, err := recorder.LoadSealer(ctx, st, os.Getenv(recorder.KeyEnv), cfg.Secrets.KeyFile)
+	if err != nil {
+		return nil, err
+	}
+	red := recorder.NewRedactor(cfg.Recorder.Redact.Headers, cfg.Recorder.Redact.JSONFields)
+	return recorder.New(st, sealer, red, recorder.Options{
+		LearningPeriod: cfg.Recorder.LearningPeriod.D(),
+		MaxBodyBytes:   cfg.Recorder.MaxBodyBytes,
+		QueueSize:      cfg.Recorder.QueueSize,
+		Log:            log,
+	}), nil
+}
+
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	st, err := store.Open(ctx, cfg.Store.Path)
 	if err != nil {
@@ -177,15 +200,38 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		log.Info("generated API token", "file", cfg.Server.APITokenFile)
 	}
 
+	rec, err := newRecorder(ctx, cfg, st, log)
+	if err != nil {
+		return err
+	}
+	recCtx, stopRec := context.WithCancel(context.Background())
+	go rec.Run(recCtx)
+	defer func() { stopRec(); rec.Wait() }() // drain queued exchanges on shutdown
+
+	gw, err := gateway.New(gateway.Options{
+		Routes:         cfg.Gateway.Routes,
+		Limits:         cfg.Gateway.Limits,
+		TrustedProxies: cfg.Gateway.TrustedProxies,
+		Recorder:       rec,
+		Log:            log,
+	})
+	if err != nil {
+		return err
+	}
+
 	var ac *artex.Client
 	if cfg.Artex.URL != "" {
 		pwFile := cfg.Artex.PasswordFile
 		ac = artex.New(cfg.Artex.URL, cfg.Artex.Username,
 			func() (string, error) { return store.ReadSecret(pwFile) }, cfg.Artex.Timeout.D())
 	}
-
-	srv := &ui.Server{Store: st, Artex: ac, APIToken: token, Version: version, Active: cfg.Active.Enabled}
-	httpSrv := &http.Server{
+	routes := make([]string, 0, len(cfg.Gateway.Routes))
+	for _, r := range cfg.Gateway.Routes {
+		routes = append(routes, r.Name)
+	}
+	srv := &ui.Server{Store: st, Artex: ac, APIToken: token, Version: version, Active: cfg.Active.Enabled,
+		Gateway: gw, Recorder: rec, Routes: routes}
+	apiSrv := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -194,21 +240,38 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
-	errc := make(chan error, 1)
-	go func() {
-		log.Info("api listening", "addr", cfg.Server.Listen, "version", version)
-		errc <- httpSrv.ListenAndServe()
-	}()
+	servers := []*http.Server{apiSrv}
+	if len(cfg.Gateway.Routes) > 0 {
+		servers = append(servers, gateway.Server(cfg.Gateway.Listen, gw, cfg.Gateway.Limits))
+	} else {
+		log.Warn("no gateway routes configured; gateway not started")
+	}
+	errc := make(chan error, len(servers))
+	for i, hs := range servers {
+		name := "api"
+		if i == 1 {
+			name = "gateway"
+		}
+		go func() {
+			log.Info(name+" listening", "addr", hs.Addr, "version", version)
+			errc <- hs.ListenAndServe()
+		}()
+	}
+	var runErr error
 	select {
 	case err := <-errc:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+		if !errors.Is(err, http.ErrServerClosed) {
+			runErr = err
 		}
-		return err
 	case <-ctx.Done():
 	}
 	log.Info("shutting down")
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return httpSrv.Shutdown(shutCtx)
+	for _, hs := range servers {
+		if err := hs.Shutdown(shutCtx); err != nil && runErr == nil {
+			runErr = err
+		}
+	}
+	return runErr
 }
