@@ -209,14 +209,36 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	defer func() { stopRec(); rec.Wait() }() // drain queued exchanges on shutdown
 
 	exclude := gateway.NewExclusions(cfg.Recorder.ExcludeSources, cfg.Recorder.ExcludeUserAgents, log)
+	if cfg.Scanner.SecretFile != "" {
+		secret, err := store.ReadSecret(cfg.Scanner.SecretFile)
+		if err != nil {
+			return fmt.Errorf("scanner.secret_file: %w", err)
+		}
+		exclude.SetScannerHeader(cfg.Scanner.Header, secret)
+		log.Info("scanner header identity on", "header", cfg.Scanner.Header)
+	}
 	exclude.Refresh(ctx)
 	go exclude.Run(recCtx, 5*time.Second)
+	var capture *gateway.ScannerCapture
+	if cfg.Scanner.CaptureFile != "" {
+		capture, err = gateway.OpenScannerCapture(gateway.CaptureOptions{Path: cfg.Scanner.CaptureFile, Log: log})
+		if err != nil {
+			return err
+		}
+		defer func() { // after the gateway has stopped (defers run last-in first-out)
+			if err := capture.Close(); err != nil {
+				log.Warn("scanner capture close failed", "err", err)
+			}
+		}()
+		log.Warn("scanner capture on: scanner traffic is written unredacted (lab only)", "file", cfg.Scanner.CaptureFile)
+	}
 	gw, err := gateway.New(gateway.Options{
 		Routes:         cfg.Gateway.Routes,
 		Limits:         cfg.Gateway.Limits,
 		TrustedProxies: cfg.Gateway.TrustedProxies,
 		Recorder:       rec,
 		Exclusions:     exclude,
+		Capture:        capture,
 		Log:            log,
 	})
 	if err != nil {

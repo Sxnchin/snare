@@ -85,6 +85,13 @@ to a model in either mode.
   not resolve), and common scanner User-Agents are excluded. An outside
   attacker probing during the learning period is not caught by either; that
   is the detector's job (M2), and its exclusion applies from then on.
+- **The scanner identity secret.** ARTEX marks its requests with a secret
+  header so Snare keeps them out of the benign corpus. Whoever learns the
+  secret can keep their own requests out of the corpus too, which only
+  shrinks it. The header must never become an allowlist: it does not exempt a
+  request from detection, rules, the tarpit or blocking. The gateway removes
+  it from every request, so the protected app and its logs never see it, and
+  ARTEX stores its recorded requests without it.
 - **A root attacker on the Snare host** can read the key file and the
   database. Snare does not defend against a compromised host.
 - **A copied data directory includes the default key.** The default key file

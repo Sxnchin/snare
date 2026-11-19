@@ -48,9 +48,16 @@ type Stats struct {
 	// Requests on a recording route kept out of the corpus by
 	// recorder.exclude_sources, the scanner User-Agent list, or because an
 	// excluded hostname could not be resolved.
+	ExcludedHeader     int64 `json:"excluded_scanner_header"`
 	ExcludedSource     int64 `json:"excluded_scanner_source"`
 	ExcludedAgent      int64 `json:"excluded_scanner_agent"`
 	ExcludedUnresolved int64 `json:"excluded_unresolved_source"`
+	// Requests whose scanner identity header had a wrong value. The header is
+	// removed either way; the request is treated like any other.
+	ScannerHeaderMismatch int64 `json:"scanner_header_mismatch"`
+	// Scanner capture (lab test data), when on.
+	ScannerCaptured int64 `json:"scanner_captured"`
+	ScannerDropped  int64 `json:"scanner_capture_dropped"`
 }
 
 type route struct {
@@ -66,6 +73,7 @@ type Gateway struct {
 	rec     *recorder.Recorder
 	flagger Flagger
 	exclude *Exclusions
+	capture *ScannerCapture
 	limits  config.Limits
 	trusted []*net.IPNet
 	log     *slog.Logger
@@ -77,7 +85,7 @@ type Gateway struct {
 
 	requests, recorded, noRoute, overloaded, perSourceLimit,
 	tooLarge, upstreamErrors, excluded atomic.Int64
-	exSource, exAgent, exUnresolved atomic.Int64
+	exHeader, exSource, exAgent, exUnresolved, headerMismatch atomic.Int64
 }
 
 // Options configures New.
@@ -90,7 +98,10 @@ type Options struct {
 	// Exclusions keeps scanner traffic out of the corpus; nil excludes
 	// nothing beyond the Flagger.
 	Exclusions *Exclusions
-	Log        *slog.Logger
+	// Capture, when set, receives every exchange of Snare's own scanner
+	// (lab test data). Nil captures nothing.
+	Capture *ScannerCapture
+	Log     *slog.Logger
 	// Transport overrides the upstream transport (tests).
 	Transport http.RoundTripper
 }
@@ -102,6 +113,7 @@ func New(opt Options) (*Gateway, error) {
 		rec:       opt.Recorder,
 		flagger:   opt.Flagger,
 		exclude:   opt.Exclusions,
+		capture:   opt.Capture,
 		limits:    opt.Limits,
 		log:       opt.Log,
 		sem:       make(chan struct{}, opt.Limits.MaxConcurrent),
@@ -161,12 +173,15 @@ func New(opt Options) (*Gateway, error) {
 
 // Stats returns a snapshot of the counters.
 func (g *Gateway) Stats() Stats {
+	captured, dropped := g.capture.Stats()
 	return Stats{
+		ScannerCaptured: captured, ScannerDropped: dropped,
 		Requests: g.requests.Load(), Recorded: g.recorded.Load(), NoRoute: g.noRoute.Load(),
 		Overloaded: g.overloaded.Load(), PerSourceLimit: g.perSourceLimit.Load(),
 		BodyTooLarge: g.tooLarge.Load(), UpstreamErrors: g.upstreamErrors.Load(),
 		ExcludedFlagged: g.excluded.Load(),
-		ExcludedSource:  g.exSource.Load(), ExcludedAgent: g.exAgent.Load(),
+		ExcludedHeader:  g.exHeader.Load(), ScannerHeaderMismatch: g.headerMismatch.Load(),
+		ExcludedSource: g.exSource.Load(), ExcludedAgent: g.exAgent.Load(),
 		ExcludedUnresolved: g.exUnresolved.Load(),
 	}
 }
@@ -313,15 +328,34 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 
-	record := g.shouldRecord(r, rt, src)
-	if !record {
+	scanner, mismatch := g.exclude.Identify(r)
+	if mismatch {
+		g.headerMismatch.Add(1)
+	}
+	record := g.shouldRecord(r, rt, src, scanner)
+	identified := ""
+	if g.capture != nil {
+		switch {
+		case scanner:
+			identified = ExcludeHeader
+		case g.exclude.Match(src, r, false) == ExcludeSource:
+			identified = ExcludeSource
+		}
+	}
+	if !record && identified == "" {
 		rt.proxy.ServeHTTP(w, r)
 		return
 	}
 
 	st := &reqState{}
 	r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, st))
-	capN := g.rec.MaxBodyBytes()
+	capN := 0
+	if record {
+		capN = g.rec.MaxBodyBytes()
+	}
+	if identified != "" {
+		capN = max(capN, g.capture.BodyLimit())
+	}
 	reqHeader := r.Header.Clone()
 	tee := &teeBody{c: capture{limit: capN}}
 	if r.Body != nil && r.Body != http.NoBody {
@@ -331,10 +365,25 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cw := &captureWriter{ResponseWriter: w, body: capture{limit: capN}}
 	start := time.Now()
 	rt.proxy.ServeHTTP(cw, r)
-	if st.tooLarge || cw.status == 0 || cw.status == 499 {
+	reqBody, reqTotal := tee.snapshot()
+	if identified != "" {
+		ex := CapturedExchange{
+			Time: start, DurationMS: float64(time.Since(start).Microseconds()) / 1000,
+			Source: src, Identified: identified, Route: rt.cfg.Name,
+			Method: r.Method, Host: r.Host, Path: r.URL.EscapedPath(), RawQuery: r.URL.RawQuery,
+			ReqHeader: reqHeader, ReqBytes: reqTotal,
+			Status: cw.status, RespHeader: cw.header, RespBytes: cw.body.total,
+		}
+		if st.tooLarge {
+			ex.Rejected = "body_too_large"
+		}
+		setBody(reqBody, &ex.ReqBody, &ex.ReqBodyB64)
+		setBody(cw.body.buf, &ex.RespBody, &ex.RespB64)
+		g.capture.Submit(ex)
+	}
+	if !record || st.tooLarge || cw.status == 0 || cw.status == 499 {
 		return // rejected or aborted exchanges are not benign samples
 	}
-	reqBody, reqTotal := tee.snapshot()
 	if g.rec.Submit(recorder.Exchange{
 		Route:         rt.cfg.Name,
 		Source:        recorder.SourceLive,
@@ -356,7 +405,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (g *Gateway) shouldRecord(r *http.Request, rt *route, src string) bool {
+func (g *Gateway) shouldRecord(r *http.Request, rt *route, src string, scanner bool) bool {
 	if g.rec == nil || rt.cfg.Mode != config.ModeRecord {
 		return false
 	}
@@ -364,7 +413,10 @@ func (g *Gateway) shouldRecord(r *http.Request, rt *route, src string) bool {
 		g.excluded.Add(1)
 		return false
 	}
-	switch g.exclude.Match(src, r) {
+	switch g.exclude.Match(src, r, scanner) {
+	case ExcludeHeader:
+		g.exHeader.Add(1)
+		return false
 	case ExcludeSource:
 		g.exSource.Add(1)
 		return false

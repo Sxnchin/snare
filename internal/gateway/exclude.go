@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net"
 	"net/http"
@@ -38,6 +39,7 @@ var DefaultScannerAgents = []string{
 // Exclusion reasons reported by Exclusions.Match.
 const (
 	ExcludeNone       = ""
+	ExcludeHeader     = "header"     // request carries the scanner identity header
 	ExcludeSource     = "source"     // client is in exclude_sources
 	ExcludeAgent      = "user_agent" // User-Agent matches the scanner list
 	ExcludeUnresolved = "unresolved" // an exclude_sources hostname has no current address
@@ -54,6 +56,9 @@ type Exclusions struct {
 	hosts  []string
 	agents []string // lower case
 	lookup func(ctx context.Context, host string) ([]net.IPAddr, error)
+
+	header string // canonical scanner identity header; "" when off
+	secret []byte
 	log    *slog.Logger
 
 	mu         sync.RWMutex
@@ -88,6 +93,35 @@ func NewExclusions(sources, agents []string, log *slog.Logger) *Exclusions {
 		e.agents = append(e.agents, strings.ToLower(a))
 	}
 	return e
+}
+
+// SetScannerHeader turns on header identity: a request whose header equals
+// secret is Snare's own scanner. An empty secret turns it off.
+func (e *Exclusions) SetScannerHeader(name, secret string) {
+	if secret == "" {
+		e.header, e.secret = "", nil
+		return
+	}
+	e.header, e.secret = http.CanonicalHeaderKey(name), []byte(secret)
+}
+
+// Identify removes the scanner identity header from r, whatever its value,
+// so neither the upstream nor the corpus ever sees it, and reports whether r
+// carried the right value (ok) or a header with any other value (mismatch).
+// Called for every request, recording or not.
+func (e *Exclusions) Identify(r *http.Request) (ok, mismatch bool) {
+	if e == nil || e.header == "" {
+		return false, false
+	}
+	vals, present := r.Header[e.header]
+	if !present {
+		return false, false
+	}
+	delete(r.Header, e.header)
+	if len(vals) == 1 && subtle.ConstantTimeCompare([]byte(vals[0]), e.secret) == 1 {
+		return true, false
+	}
+	return false, true
 }
 
 // Refresh resolves the configured hostnames once.
@@ -141,8 +175,11 @@ func (e *Exclusions) Run(ctx context.Context, interval time.Duration) {
 }
 
 // Match reports why a request from src must not be recorded, or
-// ExcludeNone.
-func (e *Exclusions) Match(src string, r *http.Request) string {
+// ExcludeNone. scanner is Identify's ok result for the same request.
+func (e *Exclusions) Match(src string, r *http.Request, scanner bool) string {
+	if scanner {
+		return ExcludeHeader
+	}
 	if e == nil {
 		return ExcludeNone
 	}

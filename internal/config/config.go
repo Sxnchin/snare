@@ -55,6 +55,7 @@ type Config struct {
 	Secrets  Secrets  `yaml:"secrets"`
 	Gateway  Gateway  `yaml:"gateway"`
 	Recorder Recorder `yaml:"recorder"`
+	Scanner  Scanner  `yaml:"scanner"`
 	Artex    Artex    `yaml:"artex"`
 	Active   Active   `yaml:"active"`
 }
@@ -80,6 +81,24 @@ type Secrets struct {
 	// KeyFile is the AES-256 key file, generated on first start when missing.
 	// SNARE_SECRET_KEY (base64 or hex, 32 bytes) takes precedence.
 	KeyFile string `yaml:"key_file"`
+}
+
+// Scanner identifies Snare's own scanner (ARTEX) by a secret request header.
+// ARTEX adds the header to every request its capture proxy sends to the
+// gateway (a rewrite rule); the gateway removes it before proxying, so the
+// protected app never sees it. Requests with the right value are never
+// recorded. recorder.exclude_sources is the backup for traffic that does not
+// pass ARTEX's proxy.
+type Scanner struct {
+	// Header is the header name. Default X-Snare-Scanner.
+	Header string `yaml:"header"`
+	// SecretFile holds the header value. Empty turns header identity off.
+	SecretFile string `yaml:"secret_file"`
+	// CaptureFile, when set, receives every exchange of the scanner
+	// (identified by header or by recorder.exclude_sources) as JSON Lines,
+	// unredacted, for building lab test data. For the lab only: never set it
+	// where the scanner tests a system with real data.
+	CaptureFile string `yaml:"capture_file"`
 }
 
 // Gateway is the reverse proxy in front of protected apps.
@@ -177,6 +196,7 @@ func Default() Config {
 		},
 		Store:   Store{Path: "data/snare.db"},
 		Secrets: Secrets{KeyFile: "data/secret.key"},
+		Scanner: Scanner{Header: "X-Snare-Scanner"},
 		Gateway: Gateway{
 			Listen: "127.0.0.1:8000",
 			Limits: Limits{
@@ -302,6 +322,9 @@ func (c Config) Validate() error {
 		if !validSource(s) {
 			add("recorder.exclude_sources[%d]: %q is not an IP address, CIDR or hostname", i, s)
 		}
+	}
+	if c.Scanner.SecretFile != "" && !validHeaderName(c.Scanner.Header) {
+		add("scanner.header: %q is not a valid header name", c.Scanner.Header)
 	}
 	for i, s := range c.Recorder.ExcludeUserAgents {
 		if strings.TrimSpace(s) == "" {
@@ -524,4 +547,17 @@ func hostChar(r rune) bool {
 		return true
 	}
 	return false
+}
+
+// validHeaderName accepts an HTTP token (RFC 9110 field-name).
+func validHeaderName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !hostChar(r) && !strings.ContainsRune("!#$%&'*+.^`|~", r) {
+			return false
+		}
+	}
+	return true
 }

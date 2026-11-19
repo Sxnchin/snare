@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -49,7 +50,7 @@ func TestExclusionsMatch(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 
 	// Before the hostname resolves, nothing is recorded.
-	if got := e.Match("172.20.0.9", r); got != ExcludeUnresolved {
+	if got := e.Match("172.20.0.9", r, false); got != ExcludeUnresolved {
 		t.Fatalf("unresolved host must fail closed, got %q", got)
 	}
 	dns.set("artex", "172.20.0.5")
@@ -75,7 +76,7 @@ func TestExclusionsMatch(t *testing.T) {
 		if c.ua != "" {
 			r.Header.Set("User-Agent", c.ua)
 		}
-		if got := e.Match(c.src, r); got != c.want {
+		if got := e.Match(c.src, r, false); got != c.want {
 			t.Errorf("Match(%s, %q) = %q, want %q", c.src, c.ua, got, c.want)
 		}
 	}
@@ -83,20 +84,20 @@ func TestExclusionsMatch(t *testing.T) {
 	// The scanner container restarts with a new address.
 	dns.set("artex", "172.20.0.6")
 	e.Refresh(context.Background())
-	if e.Match("172.20.0.6", r) != ExcludeSource || e.Match("172.20.0.5", r) != ExcludeNone {
+	if e.Match("172.20.0.6", r, false) != ExcludeSource || e.Match("172.20.0.5", r, false) != ExcludeNone {
 		t.Fatal("refresh did not follow the new address")
 	}
 	// It disappears from DNS: recording pauses rather than guessing.
 	dns.set("artex")
 	e.Refresh(context.Background())
-	if got := e.Match("172.20.0.9", r); got != ExcludeUnresolved {
+	if got := e.Match("172.20.0.9", r, false); got != ExcludeUnresolved {
 		t.Fatalf("lost hostname must fail closed, got %q", got)
 	}
 }
 
 func TestExclusionsNil(t *testing.T) {
 	var e *Exclusions
-	if e.Match("1.2.3.4", httptest.NewRequest("GET", "/", nil)) != ExcludeNone {
+	if e.Match("1.2.3.4", httptest.NewRequest("GET", "/", nil), false) != ExcludeNone {
 		t.Fatal("nil exclusions must exclude nothing")
 	}
 	e.Refresh(context.Background())
@@ -136,5 +137,61 @@ func TestScannerTrafficNotRecorded(t *testing.T) {
 	st := g.Stats()
 	if len(ids) != 1 || st.ExcludedSource != 1 || st.ExcludedAgent != 1 || st.Recorded != 1 {
 		t.Fatalf("want only the browser request recorded; ids=%v stats=%+v", ids, st)
+	}
+}
+
+func TestScannerHeaderIdentity(t *testing.T) {
+	const secret = "lab-scanner-secret-obviously-fake" // gitleaks:allow (test value)
+	var seen []string
+	var mu sync.Mutex
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Get("X-Snare-Scanner"))
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	t.Cleanup(up.Close)
+	rec, stop := newRec(t, time.Hour)
+	ex := NewExclusions(nil, nil, nil)
+	ex.SetScannerHeader("x-snare-scanner", secret)
+	g, _ := New(Options{Limits: limits(), Recorder: rec, Exclusions: ex, Routes: []config.Route{
+		{Name: "shop", PathPrefix: "/", Upstream: up.URL, Mode: config.ModeRecord},
+	}})
+	send := func(vals ...string) {
+		r := httptest.NewRequest("GET", "/rest/products/search?q=x", nil)
+		r.Header.Set("User-Agent", "Mozilla/5.0 Chrome/159.0")
+		for _, v := range vals {
+			r.Header.Add("X-Snare-Scanner", v)
+		}
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("status %d", w.Code)
+		}
+	}
+	send(secret)         // the scanner: not recorded
+	send("guess")        // wrong value: stripped, treated like any request, recorded
+	send(secret, secret) // repeated header is not the scanner: recorded
+	send()               // no header: recorded
+	stop()
+
+	for i, v := range seen {
+		if v != "" {
+			t.Fatalf("request %d: upstream saw the scanner header (%q)", i, v)
+		}
+	}
+	st := g.Stats()
+	if st.ExcludedHeader != 1 || st.ScannerHeaderMismatch != 2 || st.Recorded != 3 {
+		t.Fatalf("stats %+v", st)
+	}
+	ids, _ := rec.IDs(context.Background(), "shop")
+	for _, id := range ids {
+		rr, err := rec.Read(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rr.ReqHeaders.Values("X-Snare-Scanner")) != 0 {
+			t.Fatalf("record %d stored the scanner header", id)
+		}
 	}
 }

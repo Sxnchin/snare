@@ -13,7 +13,12 @@
 # The only exceptions are egress (allowlisted LLM hosts) and artex-ui (dials
 # only artex:8787). lab.sh test-egress audits this.
 #
-#   lab          internal  artex, juice-shop, snare, playwright (on demand)
+#   lab          internal  artex (fixed 10.203.0.10), snare, playwright (on
+#                          demand); 10.203.0.0/24, other containers get
+#                          addresses from 10.203.0.128/25 only
+#   target       internal  snare, juice-shop: the protected app is reachable
+#                          only through Snare's gateway, so every request ARTEX
+#                          sends to it passes Snare
 #   artex-db     internal  artex, postgres
 #   llm-egress   internal  artex, egress   (ARTEX_LLM_PROXY=http://egress:3128)
 #   artex-admin  internal  artex, artex-ui
@@ -26,7 +31,9 @@ services:
   juice-shop:
     # Latest stable at build time (2026-11-18). Change deliberately.
     image: bkimminich/juice-shop:v20.4.0
-    networks: [lab]
+    # Not on "lab": ARTEX and the Playwright runner reach it only through
+    # Snare's gateway (http://snare:8000).
+    networks: [target]
     healthcheck:
       test: ["CMD", "/nodejs/bin/node", "-e",
         "require('http').get('http://127.0.0.1:3000/rest/admin/application-version',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
@@ -79,11 +86,18 @@ services:
         condition: service_healthy
       egress:
         condition: service_healthy
-    networks: [lab, artex-db, llm-egress, artex-admin]
+    networks:
+      lab:
+        ipv4_address: 10.203.0.10
+      artex-db: {}
+      llm-egress: {}
+      artex-admin: {}
     environment:
       ARTEX_PG_DSN: postgres://artex:${POSTGRES_PASSWORD}@postgres:5432/artex?sslmode=disable
       ARTEX_JWT_KEY_DIR: /app/keys
       # LLM settings are left to the operator. lab.sh never writes a key.
+      # The lab uses DeepSeek through its OpenAI-compatible API; see
+      # .env.example and docs/ASSUMPTIONS.md.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ARTEX_LLM_PROVIDER: ${ARTEX_LLM_PROVIDER:-}
@@ -123,7 +137,7 @@ services:
     entrypoint: ["/usr/local/bin/labnet", "egress", "-listen", ":3128"]
     command: []
     environment:
-      LLM_EGRESS_ALLOW: ${LLM_EGRESS_ALLOW:-api.openai.com,api.anthropic.com}
+      LLM_EGRESS_ALLOW: ${LLM_EGRESS_ALLOW:-api.deepseek.com:443}
     networks: [llm-egress, outbound]
     healthcheck:
       test: ["CMD", "/usr/local/bin/labnet", "probe", "-url", "http://127.0.0.1:3128/healthz"]
@@ -159,11 +173,16 @@ services:
     image: snare-lab/snare:dev
     # Internal networks only: ARTEX can reach Snare, so Snare must not be a
     # way out. Its ports reach the host through snare-ports.
-    networks: [lab, snare-admin]
+    networks: [lab, target, snare-admin]
     secrets:
       - snare_api_token
       - artex_admin_password
       - artex_webhook_secret
+      - snare_scanner_secret
+    environment:
+      # Set by ./lab.sh capture-run only: writes ARTEX's traffic through the
+      # gateway, unredacted, to this file for lab test data. Empty = off.
+      SNARE_SCANNER_CAPTURE_FILE: ${SNARE_SCANNER_CAPTURE_FILE:-}
     volumes:
       - ./snare.lab.yaml:/etc/snare/snare.yaml:ro
       - snare-data:/var/lib/snare
@@ -220,6 +239,17 @@ services:
 networks:
   lab:
     internal: true
+    # Fixed subnet so ARTEX can have a fixed address (Snare excludes it from
+    # recording by address; see snare.lab.yaml). Dynamic addresses come only
+    # from the upper half, so no other container can ever be given ARTEX's.
+    # If 10.203.0.0/24 collides with a network on your machine, change it
+    # here, in artex's ipv4_address, and in snare.lab.yaml.
+    ipam:
+      config:
+        - subnet: 10.203.0.0/24
+          ip_range: 10.203.0.128/25
+  target:
+    internal: true
   artex-db:
     internal: true
   llm-egress:
@@ -238,6 +268,8 @@ secrets:
     file: ./secrets/artex_admin_password
   artex_webhook_secret:
     file: ./secrets/artex_webhook_secret
+  snare_scanner_secret:
+    file: ./secrets/snare_scanner_secret
 
 volumes:
   pgdata:

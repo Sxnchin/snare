@@ -21,9 +21,17 @@ gateway:
 
 recorder:
   # ARTEX's traffic through the gateway is attack traffic, never benign
-  # corpus. Hostnames are re-resolved every few seconds; while "artex" does
-  # not resolve, nothing is recorded.
-  exclude_sources: [artex]
+  # corpus. ARTEX has a fixed address on the lab network (compose.yaml), so
+  # there is no resolution window. This is the backup for the header below:
+  # it also covers tools that do not use ARTEX's capture proxy.
+  exclude_sources: [10.203.0.10]
+
+scanner:
+  # ARTEX's capture proxy adds this header to every request it sends to
+  # host "snare" (a rewrite rule that lab.sh bootstrap installs). Snare
+  # removes it before proxying and never records such requests.
+  header: X-Snare-Scanner
+  secret_file: /run/secrets/snare_scanner_secret
 
 artex:
   url: http://artex:8787

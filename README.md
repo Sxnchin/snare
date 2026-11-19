@@ -62,11 +62,18 @@ toolchain and a browser). Everything binds to 127.0.0.1:
 Juice Shop has no internet access and is not published on the host. ARTEX,
 and every container ARTEX can reach, is on internal-only networks: its only
 way out is an egress proxy that allows just the LLM provider hosts in
-`LLM_EGRESS_ALLOW`. `./lab.sh test` proves it
-from inside the ARTEX container (including a pivot attempt through Juice
-Shop's SSRF) and logs Snare's ARTEX client in to the real
-container. No LLM key is configured by the lab; set one in
-`deploy/compose/.env` yourself.
+`LLM_EGRESS_ALLOW` (in the lab, only `api.deepseek.com:443`). `./lab.sh test`
+proves it from inside the ARTEX container (including a pivot attempt through
+Juice Shop's SSRF), checks that ARTEX's traffic never enters the benign
+corpus, and logs Snare's ARTEX client in to the real container. ARTEX
+reaches Juice Shop only through Snare.
+
+No LLM key is configured by the lab. ARTEX uses DeepSeek through its
+OpenAI-compatible API; paste your key after `OPENAI_API_KEY=` in
+`deploy/compose/.env` yourself, then run `./lab.sh up` so ARTEX picks it up.
+LLM runs cost money: `./lab.sh capture-run` prints its plan and cost
+estimate and starts only with `--yes`, and every run is logged in
+`bench/results/llm-spend.md`.
 
 Recording legitimate traffic (milestone M1):
 
