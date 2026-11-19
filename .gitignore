@@ -1,0 +1,8 @@
+/data/
+/snare
+*.db
+*.db-shm
+*.db-wal
+deploy/compose/.env
+deploy/compose/secrets/
+bench/results/*.tmp

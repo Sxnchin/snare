@@ -1,0 +1,7 @@
+.git
+data
+bench/results
+deploy/compose/.env
+deploy/compose/secrets
+*.db
+*.db-*

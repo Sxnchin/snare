@@ -1,0 +1,30 @@
+# Snare configuration for the compose lab. Paths are inside the container.
+server:
+  # The container's own network namespace; the host publishes it on loopback.
+  listen: 0.0.0.0:8780
+  allow_non_loopback: true
+  api_token_file: /run/secrets/snare_api_token
+
+store:
+  path: /var/lib/snare/snare.db
+
+secrets:
+  key_file: /var/lib/snare/secret.key
+
+gateway:
+  listen: 0.0.0.0:8000
+  routes:
+    - name: juice-shop
+      path_prefix: /
+      upstream: http://juice-shop:3000
+      mode: record
+
+artex:
+  url: http://artex:8787
+  username: ARTEX
+  password_file: /run/secrets/artex_admin_password
+  webhook_secret_file: /run/secrets/artex_webhook_secret
+  timeout: 30s
+
+active:
+  enabled: false

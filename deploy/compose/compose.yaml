@@ -1,0 +1,140 @@
+# Snare development lab. Everything here is local; nothing is exposed beyond
+# 127.0.0.1 on the host.
+#
+#   ./lab.sh up      build, start, wait for health, bootstrap ARTEX
+#   ./lab.sh status  print health of every service
+#   ./lab.sh down    stop (add -v to drop volumes)
+#
+# Networks:
+#   lab        internal (no internet). snare, artex, juice-shop. ARTEX reaches
+#              Juice Shop either directly (benchmark run A) or through Snare's
+#              gateway (runs B and C).
+#   artex-db   internal. artex and postgres only.
+#   front      ordinary bridge so Snare's ports can be published on loopback.
+#   artex-out  ordinary bridge so ARTEX can reach the LLM API you configure.
+#              Juice Shop is on none of the outward networks.
+name: snare-lab
+
+services:
+  juice-shop:
+    # Latest stable at build time (2026-11-18). Change deliberately.
+    image: bkimminich/juice-shop:v20.4.0
+    networks: [lab]
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e",
+        "require('http').get('http://127.0.0.1:3000/rest/admin/application-version',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres:
+    # Same image ARTEX's own compose file uses at the pinned commit.
+    image: postgres:16-alpine
+    networks: [artex-db]
+    environment:
+      POSTGRES_USER: artex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./lab.sh up, which generates .env}
+      POSTGRES_DB: artex
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U artex -d artex"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  artex:
+    # Built from the pinned, unmodified ARTEX checkout next to this repo.
+    # See docs/ASSUMPTIONS.md for the pinned commit.
+    build:
+      context: ${ARTEX_SRC:-../../../ARTEX}
+      args:
+        ARTEX_VERSION: d89cf78
+    image: snare-lab/artex:d89cf78
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [lab, artex-db, artex-out]
+    environment:
+      ARTEX_PG_DSN: postgres://artex:${POSTGRES_PASSWORD}@postgres:5432/artex?sslmode=disable
+      ARTEX_JWT_KEY_DIR: /app/keys
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ARTEX_LLM_PROVIDER: ${ARTEX_LLM_PROVIDER:-}
+      ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-}
+      ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-}
+      ARTEX_LLM_PROXY: ${ARTEX_LLM_PROXY:-}
+      # Brakes. Snare forces these on in active mode (M7); the lab sets
+      # conservative defaults so a manual run is also braked.
+      ARTEX_NOISE_PROFILE: ${ARTEX_NOISE_PROFILE:-quiet}
+      ARTEX_TASK_BUDGET_TOKENS: ${ARTEX_TASK_BUDGET_TOKENS:-2000000}
+      ARTEX_TASK_BUDGET_TURNS: ${ARTEX_TASK_BUDGET_TURNS:-400}
+      ARTEX_INTENT_BUDGET_TOKENS: ${ARTEX_INTENT_BUDGET_TOKENS:-200000}
+      ARTEX_INTENT_BUDGET_TURNS: ${ARTEX_INTENT_BUDGET_TURNS:-40}
+      ARTEX_UNTRUSTED_BOUNDARY: ""
+      ARTEX_UPDATE_CHECK: ""
+    # The container's CMD already listens on :8787 inside its own network
+    # namespace (equivalent to ARTEX_BIND_ADDR=0.0.0.0 on the compose network).
+    # On the host it is published on loopback only.
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - artex-data:/app/data
+      - artex-keys:/app/keys
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 20s
+    restart: unless-stopped
+
+  snare:
+    build:
+      context: ../..
+    image: snare-lab/snare:dev
+    networks: [lab, front]
+    secrets:
+      - snare_api_token
+      - artex_admin_password
+      - artex_webhook_secret
+    volumes:
+      - ./snare.lab.yaml:/etc/snare/snare.yaml:ro
+      - snare-data:/var/lib/snare
+    ports:
+      - "127.0.0.1:8000:8000"   # gateway (protected Juice Shop)
+      - "127.0.0.1:8780:8780"   # Snare API and UI
+    depends_on:
+      juice-shop:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/snare", "healthcheck", "-url", "http://127.0.0.1:8780/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+networks:
+  lab:
+    internal: true
+  artex-db:
+    internal: true
+  front: {}
+  artex-out: {}
+
+secrets:
+  snare_api_token:
+    file: ./secrets/snare_api_token
+  artex_admin_password:
+    file: ./secrets/artex_admin_password
+  artex_webhook_secret:
+    file: ./secrets/artex_webhook_secret
+
+volumes:
+  pgdata:
+  artex-data:
+  artex-keys:
+  snare-data:
