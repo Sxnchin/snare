@@ -84,8 +84,8 @@ func TestScannerCapture(t *testing.T) {
 	if c, d := capt.Stats(); c != 2 || d != 0 {
 		t.Fatalf("stats %d captured %d dropped", c, d)
 	}
-	if ids, _ := rec.IDs(context.Background(), "shop"); len(ids) != 2 {
-		t.Fatalf("users' requests must still be recorded: %d", len(ids))
+	if ids, _ := rec.IDs(context.Background(), "shop"); len(ids) != 1 {
+		t.Fatalf("want only the user's request recorded, got %d", len(ids))
 	}
 	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
 		t.Fatalf("capture file mode %v", st.Mode().Perm())

@@ -1,0 +1,98 @@
+{
+  "finding_id": "9",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 101,
+      "time": "2026-11-19T19:40:22.03746996Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 200
+    },
+    {
+      "line": 108,
+      "time": "2026-11-19T19:40:26.789589171Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 200
+    },
+    {
+      "line": 122,
+      "time": "2026-11-19T19:40:35.616615758Z",
+      "method": "PUT",
+      "path": "/api/BasketItems/1",
+      "status": 400
+    },
+    {
+      "line": 124,
+      "time": "2026-11-19T19:40:36.233068384Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 200
+    },
+    {
+      "line": 125,
+      "time": "2026-11-19T19:40:39.052977218Z",
+      "method": "PUT",
+      "path": "/api/BasketItems/1",
+      "status": 200
+    },
+    {
+      "line": 126,
+      "time": "2026-11-19T19:40:39.683094677Z",
+      "method": "PUT",
+      "path": "/api/BasketItems/1",
+      "status": 200
+    },
+    {
+      "line": 127,
+      "time": "2026-11-19T19:40:40.311358469Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 200
+    },
+    {
+      "line": 134,
+      "time": "2026-11-19T19:40:43.733561054Z",
+      "method": "PUT",
+      "path": "/api/BasketItems/1",
+      "status": 400
+    },
+    {
+      "line": 138,
+      "time": "2026-11-19T19:40:44.974669596Z",
+      "method": "PUT",
+      "path": "/api/BasketItems/1",
+      "status": 200
+    },
+    {
+      "line": 156,
+      "time": "2026-11-19T19:40:49.711978459Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 200
+    },
+    {
+      "line": 199,
+      "time": "2026-11-19T19:41:14.473631471Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 401
+    },
+    {
+      "line": 200,
+      "time": "2026-11-19T19:41:15.078862055Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 200
+    },
+    {
+      "line": 201,
+      "time": "2026-11-19T19:41:15.697891221Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

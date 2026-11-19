@@ -1,0 +1,35 @@
+{
+  "finding_id": "5",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 83,
+      "time": "2026-11-19T19:38:52.609141377Z",
+      "method": "GET",
+      "path": "/ftp/package.json.bak",
+      "status": 403
+    },
+    {
+      "line": 84,
+      "time": "2026-11-19T19:38:53.223176669Z",
+      "method": "GET",
+      "path": "/ftp/incident-support.kdbx",
+      "status": 200
+    },
+    {
+      "line": 89,
+      "time": "2026-11-19T19:38:58.40317263Z",
+      "method": "GET",
+      "path": "/ftp/package.json.bak%2500.md",
+      "status": 200
+    },
+    {
+      "line": 90,
+      "time": "2026-11-19T19:38:59.017210464Z",
+      "method": "GET",
+      "path": "/ftp/package-lock.json.bak%2500.md",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

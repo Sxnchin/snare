@@ -41,7 +41,7 @@ which scans only your staged changes:
 
 ```sh
 git config core.hooksPath .githooks   # once per clone
-gitleaks git --redact -v .             # full history, same as CI
+gitleaks git --redact -v --max-archive-depth 2 .   # full history, same as CI
 ```
 
 Test fixtures sometimes need values that look like secrets (a JWT for the
@@ -57,6 +57,12 @@ in the same change:
   include the line number, so moving the line means updating the entry.
   Add both forms: `<commit>:<file>:<rule>:<line>` once the commit exists, and
   `<file>:<rule>:<line>` for working-tree scans.
+
+Scans open compressed files (`--max-archive-depth 2`), so a gzipped fixture
+is checked like any other. Recorded attack traffic under `bench/fixtures/`
+holds the lab app's own tokens and leaked demo data; allowlist each value
+there only after checking what it is, and say what it is in the comment
+above its entries (see the existing capture entries).
 
 Never allowlist a real credential. If one is committed, treat it as leaked:
 rotate it first, then remove it.

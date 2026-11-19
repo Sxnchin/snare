@@ -35,6 +35,21 @@ type Flagger interface {
 	AgentLike(source string) bool
 }
 
+// Signal kinds the gateway reports to a SignalSink.
+const (
+	// SignalForgedScannerHeader: the request carried the scanner identity
+	// header with a wrong value, or more than one. Only someone who knows
+	// Snare's internals sends that header, and Snare is open source, so it is
+	// a strong sign of an attacker probing Snare itself.
+	SignalForgedScannerHeader = "forged_scanner_header"
+)
+
+// SignalSink receives per-request signals for the detector. The detector
+// (M2) implements it; nil drops them. Signal must not block.
+type SignalSink interface {
+	Signal(source, kind string)
+}
+
 // Stats are gateway counters since start.
 type Stats struct {
 	Requests        int64 `json:"requests"`
@@ -52,8 +67,9 @@ type Stats struct {
 	ExcludedSource     int64 `json:"excluded_scanner_source"`
 	ExcludedAgent      int64 `json:"excluded_scanner_agent"`
 	ExcludedUnresolved int64 `json:"excluded_unresolved_source"`
-	// Requests whose scanner identity header had a wrong value. The header is
-	// removed either way; the request is treated like any other.
+	// Requests whose scanner identity header had a wrong value (forged). The
+	// header is removed, the request is proxied, never recorded, and reported
+	// to the SignalSink.
 	ScannerHeaderMismatch int64 `json:"scanner_header_mismatch"`
 	// Scanner capture (lab test data), when on.
 	ScannerCaptured int64 `json:"scanner_captured"`
@@ -74,6 +90,7 @@ type Gateway struct {
 	flagger Flagger
 	exclude *Exclusions
 	capture *ScannerCapture
+	signals SignalSink
 	limits  config.Limits
 	trusted []*net.IPNet
 	log     *slog.Logger
@@ -101,6 +118,8 @@ type Options struct {
 	// Capture, when set, receives every exchange of Snare's own scanner
 	// (lab test data). Nil captures nothing.
 	Capture *ScannerCapture
+	// Signals receives detector signals (M2). Nil drops them.
+	Signals SignalSink
 	Log     *slog.Logger
 	// Transport overrides the upstream transport (tests).
 	Transport http.RoundTripper
@@ -114,6 +133,7 @@ func New(opt Options) (*Gateway, error) {
 		flagger:   opt.Flagger,
 		exclude:   opt.Exclusions,
 		capture:   opt.Capture,
+		signals:   opt.Signals,
 		limits:    opt.Limits,
 		log:       opt.Log,
 		sem:       make(chan struct{}, opt.Limits.MaxConcurrent),
@@ -331,8 +351,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	scanner, mismatch := g.exclude.Identify(r)
 	if mismatch {
 		g.headerMismatch.Add(1)
+		if g.signals != nil {
+			g.signals.Signal(src, SignalForgedScannerHeader)
+		}
 	}
-	record := g.shouldRecord(r, rt, src, scanner)
+	// A forged header is never benign traffic.
+	record := !mismatch && g.shouldRecord(r, rt, src, scanner)
 	identified := ""
 	if g.capture != nil {
 		switch {

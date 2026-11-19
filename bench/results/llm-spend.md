@@ -13,7 +13,8 @@ updates the total.
   lower than this, so the cost column is an upper bound.
 - Budget for the whole project: $5.00 of prepaid credit.
 
-Total so far: $0.0000 of $5.00 (0 runs)
+Total so far: $0.3809 of $5.00 (1 runs)
 
 | Started (UTC) | ARTEX task | Run | Input tokens | Output tokens | Tool calls | Wall seconds | Price | Est. cost |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-19T19:37Z | 1 | capture run (Juice Shop through Snare, 2000000-token budget) | 2225160 | 78621 | 49 | 296 | off-peak | $0.3809 |

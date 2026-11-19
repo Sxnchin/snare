@@ -84,7 +84,12 @@ mode needs an ARTEX instance reachable over HTTP.
 4. The gate moves the rule through
    `candidate -> detect_only -> soaking -> enforced -> rolled_back | retired`,
    replaying the stored exploit and the benign corpus, soaking on live traffic,
-   and finally asking ARTEX to retest through Snare.
+   and finally asking ARTEX to retest through Snare. Before the corpus is
+   replayed it is prepared against poisoning (see THREAT_MODEL.md):
+   entries matching the compiler's exploit-class templates are quarantined,
+   and the rest are grouped by request shape and weighted by the number of
+   distinct sources that sent each shape, so one source cannot define what
+   "normal" looks like for a route.
 5. Every transition is an action log row with evidence and an undo handle.
 
 ## Trust boundaries

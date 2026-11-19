@@ -9,7 +9,25 @@ api.token
 *.db
 *.db-shm
 *.db-wal
-deploy/compose/.env
+# Environment files and every variant of them, anywhere: they can hold keys.
+# Only the documented example is tracked.
+.env
+.env.*
+*.env
+!.env.example
+# Editor and tool backups (nano .save, vim .swp/.swo, emacs ~ and #...#,
+# .bak, .orig, .tmp copies), which can copy a secret file.
+*.save
+*.save.[0-9]*
+*.swp
+*.swo
+*.swn
+*~
+\#*\#
+.\#*
+*.bak
+*.orig
+*.rej
+*.tmp
 deploy/compose/secrets/
-bench/results/*.tmp
 deploy/compose/run/

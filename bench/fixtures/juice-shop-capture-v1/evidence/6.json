@@ -1,0 +1,84 @@
+{
+  "finding_id": "6",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 10,
+      "time": "2026-11-19T19:37:44.399894929Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 401
+    },
+    {
+      "line": 13,
+      "time": "2026-11-19T19:37:46.305717513Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 14,
+      "time": "2026-11-19T19:37:47.3321885Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 17,
+      "time": "2026-11-19T19:37:50.688635376Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 79,
+      "time": "2026-11-19T19:38:50.150423334Z",
+      "method": "GET",
+      "path": "/ftp/suspicious_errors.yml",
+      "status": 403
+    },
+    {
+      "line": 95,
+      "time": "2026-11-19T19:39:18.361141417Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 500
+    },
+    {
+      "line": 98,
+      "time": "2026-11-19T19:40:18.041286917Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 99,
+      "time": "2026-11-19T19:40:19.931107334Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 100,
+      "time": "2026-11-19T19:40:20.072802376Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 113,
+      "time": "2026-11-19T19:40:29.375235089Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 166,
+      "time": "2026-11-19T19:40:54.442911586Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

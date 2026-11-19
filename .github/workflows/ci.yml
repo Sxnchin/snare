@@ -55,7 +55,7 @@ jobs:
           curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
           echo "${GITLEAKS_SHA256}  $f" | sha256sum -c -
           tar xzf "$f" gitleaks
-          ./gitleaks git --redact --no-banner -v .
+          ./gitleaks git --redact --no-banner -v --max-archive-depth 2 .
 
   vuln:
     runs-on: ubuntu-latest

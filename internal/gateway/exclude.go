@@ -107,8 +107,8 @@ func (e *Exclusions) SetScannerHeader(name, secret string) {
 
 // Identify removes the scanner identity header from r, whatever its value,
 // so neither the upstream nor the corpus ever sees it, and reports whether r
-// carried the right value (ok) or a header with any other value (mismatch).
-// Called for every request, recording or not.
+// carried the right value (ok) or a header with any other value or more than
+// one (mismatch: forged, never recorded). Called for every request.
 func (e *Exclusions) Identify(r *http.Request) (ok, mismatch bool) {
 	if e == nil || e.header == "" {
 		return false, false

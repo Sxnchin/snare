@@ -114,6 +114,14 @@ harden_artex() {
   out=$(curl -fsS -H "Authorization: Bearer $jwt" "$ARTEX_API/api/settings")
   grep -q '"web_search_enabled":false' <<<"$out" || die "ARTEX web search is not off"
   log "ARTEX web search is off"
+  # ARTEX's traffic capture is off by default, and while it is off ARTEX
+  # gives its tools no proxy: no request carries the scanner header and no
+  # finding gets bound proving exchanges. Turn it on.
+  curl -fsS -o /dev/null -X PUT -H "Authorization: Bearer $jwt" -H 'Content-Type: application/json' \
+    --data '{"traffic_capture":true}' "$ARTEX_API/api/settings"
+  out=$(curl -fsS -H "Authorization: Bearer $jwt" "$ARTEX_API/api/settings")
+  grep -q '"traffic_capture":true' <<<"$out" || die "ARTEX traffic capture is not on"
+  log "ARTEX traffic capture is on (tools go through its proxy)"
   install_scanner_rule "$jwt"
 }
 
@@ -391,10 +399,10 @@ corpus_check() {
 #   - header: requests through ARTEX's capture proxy carry X-Snare-Scanner;
 #   - source: direct requests from ARTEX come from its fixed lab address;
 #   - user agent: a sqlmap User-Agent from another container.
-# It also checks that a wrong header value is stripped and treated as normal
-# traffic, that the upstream never sees the header (the request is recorded
-# without it), and that ARTEX's own traffic record holds no copy of the
-# secret. A browser-like request is the control: it must be recorded.
+# It also checks that a wrong header value is treated as forged (counted, not
+# recorded), that the header never reaches the corpus, and that ARTEX's own
+# traffic record holds no copy of the secret. A browser-like request is the
+# control: it must be recorded.
 test_corpus_exclusion() {
   local tok before mid after st0 st1 i fails=0 marker secret id ex
   pass() { printf '  PASS  %s\n' "$*"; }
@@ -440,17 +448,22 @@ test_corpus_exclusion() {
   jsfetch "http://snare:8000/rest/products/search?q=$marker-control" 'Mozilla/5.0 (X11; Linux x86_64) Chrome/159.0' ||
     die "corpus exclusion: control request failed"
   settle; after=$(stored); after=${after:-0}; st1=$(status)
-  if (( after == mid + 2 )); then pass "control: a browser-like request and one with a wrong header value are recorded ($mid -> $after)"
-  else fail "control: expected $((mid + 2)) stored, got $after"; fi
-  if (( $(counter scanner_header_mismatch "$st1") > $(counter scanner_header_mismatch "$st0") )); then pass "the wrong header value was counted as a mismatch"
+  if (( after == mid + 1 )); then pass "control: a browser-like request is recorded, the one with a forged header is not ($mid -> $after)"
+  else fail "expected $((mid + 1)) stored (control only), got $after"; fi
+  if (( $(counter scanner_header_mismatch "$st1") > $(counter scanner_header_mismatch "$st0") )); then pass "the wrong header value was counted as forged"
   else fail "wrong header value not counted"; fi
-  if "${COMPOSE[@]}" exec -T snare /usr/local/bin/snare corpus dump -config /etc/snare/snare.yaml -route juice-shop | grep "$marker-wrong" | grep -qi 'x-snare-scanner'; then
-    fail "the stored request still carries the scanner header"
-  else pass "the scanner header is removed before proxying and recording"; fi
+  if "${COMPOSE[@]}" exec -T snare /usr/local/bin/snare corpus dump -config /etc/snare/snare.yaml -route juice-shop | grep -qi 'x-snare-scanner'; then
+    fail "a stored request carries the scanner header"
+  else pass "no stored request carries the scanner header"; fi
 
   # ARTEX's own record of the proxied requests must not contain the secret.
   local jwt
   jwt=$(artex_token)
+  # Tools get ARTEX's proxy (and so the header) only while its traffic
+  # capture is on; the curl above names the proxy explicitly, so check it.
+  if curl -fsS -H "Authorization: Bearer $jwt" "$ARTEX_API/api/settings" | grep -q '"traffic_capture":true'; then
+    pass "ARTEX traffic capture is on, so its tools are given the proxy"
+  else fail "ARTEX traffic capture is off: its tools bypass the proxy and send no scanner header"; fi
   local ids n=0 leaked=0
   ids=$(curl -fsS -H "Authorization: Bearer $jwt" "$ARTEX_API/api/traffic?host=snare&size=200" |
     grep -o '"id":"[^"]*"' | cut -d'"' -f4 || true)
@@ -538,6 +551,8 @@ EOF
   llm_key_present || die "OPENAI_API_KEY is empty in deploy/compose/.env"
   [[ $allow == api.deepseek.com:443 ]] || die "LLM_EGRESS_ALLOW must be exactly api.deepseek.com:443 (is '$allow')"
   if (( peak && !allow_peak )); then die "it is DeepSeek peak time (double price); wait, or pass --allow-peak"; fi
+  curl -fsS -H "Authorization: Bearer $(artex_token)" "$ARTEX_API/api/settings" | grep -q '"traffic_capture":true' ||
+    die "ARTEX traffic capture is off: tools would bypass its proxy (no scanner header, no bound evidence); run ./lab.sh bootstrap"
 
   # The key is read inside the ARTEX container from its own environment and
   # handed to curl on stdin, so it is never on a command line or in output.
@@ -574,13 +589,25 @@ JSON
   start=$(date -u +%s)
   out=$(curl -fsS -H "Authorization: Bearer $jwt" -H 'Content-Type: application/json' --data "$body" "$ARTEX_API/api/tasks") ||
     die "ARTEX refused the task"
-  task=$(sed -n 's/^{"id":\([0-9]*\).*/\1/p' <<<"$out")
-  [[ -n $task ]] || task=$(grep -o '"id":[0-9]*' <<<"$out" | head -1 | grep -o '[0-9]*')
-  [[ -n $task ]] || die "could not read the task id"
+  # ARTEX returns the id as a JSON string ("id":"1").
+  task=$(grep -o '"id":"\{0,1\}[0-9][0-9]*' <<<"$out" | head -1 | grep -o '[0-9][0-9]*$' || true)
+  if [[ -z $task ]]; then
+    log "could not read the task id; the task may be running: check ./lab.sh and ARTEX's UI, then run ./lab.sh capture-watch TASK $file $start"
+    die "could not read the task id"
+  fi
   log "task $task started at $(date -u +%H:%MZ)"
-  local dir=run/capture/$task
+  mkdir -p "run/capture/$task"
+  printf '%s\n' "$out" > "run/capture/$task/task-created.json"
+  capture_watch "$task" "$file" "$start"
+}
+
+# capture_watch TASK CAPTURE_FILE START_EPOCH polls a running capture task,
+# pauses it past the hard stop, and when it ends turns the capture off, copies
+# the capture and outcome out, and records the spend. capture_run calls it;
+# it can also be attached to a task that is already running.
+capture_watch() {
+  local task=$1 file=$2 start=$3 dir=run/capture/$1
   mkdir -p "$dir"
-  printf '%s\n' "$out" > "$dir/task-created.json"
 
   local o in_t out_t calls wall status tok
   while :; do
@@ -697,6 +724,7 @@ case $cmd in
   test) ensure_env; check_snare; test_egress; test_containment; test_pivot; test_corpus_exclusion; test_login ;;
   test-exclusion) ensure_env; test_corpus_exclusion ;;
   capture-run) ensure_env; capture_run "$@" ;;
+  capture-watch) ensure_env; capture_watch "$@" ;;
   traffic) ensure_env; traffic "$@" ;;
   latency) ensure_env; latency "$@" ;;
   corpus-check) ensure_env; corpus_check ;;

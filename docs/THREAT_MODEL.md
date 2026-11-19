@@ -85,6 +85,32 @@ to a model in either mode.
   not resolve), and common scanner User-Agents are excluded. An outside
   attacker probing during the learning period is not caught by either; that
   is the detector's job (M2), and its exclusion applies from then on.
+- **Corpus poisoning by a slow attacker.** An attacker who sends exploit
+  payloads slowly during the learning period, below anything the detector
+  scores as agent-like, gets them recorded as benign. The gate replays the
+  corpus against each candidate rule and refuses to promote a rule that
+  matches benign traffic, so a few poisoned entries on a route would keep
+  every rule for that route from ever blocking. That is a denial of
+  protection, not an outage, and it is silent. Mitigations, in the gate's
+  corpus preparation (M4):
+  - quarantine: before the gate uses the corpus, every entry that matches one
+    of the compiler's exploit-class templates (SQL injection, XSS, path
+    traversal, command injection and the others the compiler emits) is set
+    aside and never counted as benign; quarantined entries are listed for a
+    human to release or delete;
+  - source weighting: entries are grouped by similar request shape (route,
+    method, parameter names, value class), and each group counts by how many
+    distinct sources sent it, not by how many requests. A shape sent by one
+    source alone cannot block promotion on its own; it needs several
+    independent sources to count as "normal";
+  - the gate reports why a rule was blocked (which corpus entries matched,
+    how many sources), so a route where one source keeps blocking rules is
+    visible.
+  These reduce the problem; they do not remove it. An attacker with many
+  sources (a botnet) can still fake "distinct sources". The corpus also
+  stores no client address (privacy), so source weighting needs a keyed hash
+  of the source (HMAC with a key Snare holds, rotated with the learning
+  period) stored per entry; that is a schema change planned for M4.
 - **The scanner identity secret.** ARTEX marks its requests with a secret
   header so Snare keeps them out of the benign corpus. Whoever learns the
   secret can keep their own requests out of the corpus too, which only

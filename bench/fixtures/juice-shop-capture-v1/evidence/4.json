@@ -1,0 +1,14 @@
+{
+  "finding_id": "4",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 5,
+      "time": "2026-11-19T19:37:42.864196678Z",
+      "method": "GET",
+      "path": "/sitemap.xml",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

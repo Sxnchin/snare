@@ -154,7 +154,8 @@ func TestScannerHeaderIdentity(t *testing.T) {
 	rec, stop := newRec(t, time.Hour)
 	ex := NewExclusions(nil, nil, nil)
 	ex.SetScannerHeader("x-snare-scanner", secret)
-	g, _ := New(Options{Limits: limits(), Recorder: rec, Exclusions: ex, Routes: []config.Route{
+	sig := &signalLog{}
+	g, _ := New(Options{Limits: limits(), Recorder: rec, Exclusions: ex, Signals: sig, Routes: []config.Route{
 		{Name: "shop", PathPrefix: "/", Upstream: up.URL, Mode: config.ModeRecord},
 	}})
 	send := func(vals ...string) {
@@ -170,8 +171,8 @@ func TestScannerHeaderIdentity(t *testing.T) {
 		}
 	}
 	send(secret)         // the scanner: not recorded
-	send("guess")        // wrong value: stripped, treated like any request, recorded
-	send(secret, secret) // repeated header is not the scanner: recorded
+	send("guess")        // wrong value: forged, stripped, not recorded, signalled
+	send(secret, secret) // repeated header: forged too
 	send()               // no header: recorded
 	stop()
 
@@ -181,8 +182,11 @@ func TestScannerHeaderIdentity(t *testing.T) {
 		}
 	}
 	st := g.Stats()
-	if st.ExcludedHeader != 1 || st.ScannerHeaderMismatch != 2 || st.Recorded != 3 {
+	if st.ExcludedHeader != 1 || st.ScannerHeaderMismatch != 2 || st.Recorded != 1 {
 		t.Fatalf("stats %+v", st)
+	}
+	if got := sig.all(); len(got) != 2 || got[0] != "192.0.2.1 "+SignalForgedScannerHeader {
+		t.Fatalf("signals %v", got)
 	}
 	ids, _ := rec.IDs(context.Background(), "shop")
 	for _, id := range ids {
@@ -194,4 +198,21 @@ func TestScannerHeaderIdentity(t *testing.T) {
 			t.Fatalf("record %d stored the scanner header", id)
 		}
 	}
+}
+
+type signalLog struct {
+	mu  sync.Mutex
+	got []string
+}
+
+func (l *signalLog) Signal(source, kind string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.got = append(l.got, source+" "+kind)
+}
+
+func (l *signalLog) all() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.got...)
 }

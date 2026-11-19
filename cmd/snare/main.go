@@ -35,6 +35,7 @@ Usage:
   snare corpus import-har -route NAME [-host H,...] F.har  import a HAR file into the corpus
   snare corpus show [-config FILE] ID                    print one stored (redacted) exchange
   snare corpus dump -route NAME                          print every stored exchange of a route (redacted)
+  snare fixture export -password-file F -task ID -out DIR  export an ARTEX task's findings and evidence as test data
   snare healthcheck [-url URL]          probe a running instance (for containers)
   snare version
 
@@ -61,6 +62,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdConfig(args[1:], stdout, stderr)
 	case "corpus":
 		return cmdCorpus(args[1:], stdout, stderr)
+	case "fixture":
+		return cmdFixture(args[1:], stdout, stderr)
 	case "healthcheck":
 		return cmdHealthcheck(args[1:], stderr)
 	case "version", "-version", "--version":

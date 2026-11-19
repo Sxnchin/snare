@@ -1,0 +1,14 @@
+{
+  "finding_id": "8",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 110,
+      "time": "2026-11-19T19:40:27.527742629Z",
+      "method": "GET",
+      "path": "/api/BasketItems",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}
