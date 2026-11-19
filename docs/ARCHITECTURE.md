@@ -105,20 +105,28 @@ that keeps ARTEX on lab targets: ARTEX is attached only to Docker `internal`
 networks, which have no route or DNS to the internet.
 
 ```
- host 127.0.0.1:   8000, 8780                    8787
-                       |                           |
- front (bridge)    [ snare ]                  [ artex-ui ]  fixed forwarder to artex:8787
-                       |                           |
- lab (internal)   -----+---- juice-shop ----+      | artex-admin (internal)
-                                            |      |
-                                         [ artex ]-+
-                                            |  |
- artex-db (internal)       postgres --------+  +-------- [ egress ] -- outbound (bridge) --> LLM host only
-                                              llm-egress (internal)
+ host 127.0.0.1:  8000, 8780                       8787
+                      |                              |
+ front (bridge)  [ snare-ports ]                [ artex-ui ]
+                      | snare-admin (internal)       | artex-admin (internal)
+                  [ snare ]                          |
+                      |                              |
+ lab (internal)  -----+------ juice-shop ------+     |
+                                               |     |
+                                           [ artex ]-+
+                                               |  |
+ artex-db (internal)      postgres ------------+  +--- [ egress ] -- outbound (bridge) --> LLM host only
+                                                 llm-egress (internal)
 ```
 
+Containment rule: ARTEX and every container ARTEX can reach are on internal
+networks only. `egress` and `artex-ui` are the declared exceptions; both
+reach only fixed or allowlisted destinations. `snare-ports` shares only
+`snare-admin` with Snare, so ARTEX cannot reach it.
+
 - Juice Shop is attached only to `lab`; the host reaches it only through
-  Snare's gateway.
+  Snare's gateway. Snare itself has no internet access, because ARTEX can
+  reach it.
 - ARTEX reaches the internet only through `egress`, an allowlisting CONNECT
   proxy (`internal/labnet`) set as `ARTEX_LLM_PROXY`. It allows exactly the
   hosts in `LLM_EGRESS_ALLOW` and refuses everything else.
@@ -129,8 +137,8 @@ networks, which have no route or DNS to the internet.
   ARTEX's first-run claim (it reads the one-time setup token from the ARTEX log
   and calls `POST /api/auth/init`), forces ARTEX web search off, and checks
   that Snare can log in to ARTEX. `lab.sh test` runs the isolation test from
-  inside the ARTEX container and the Go client's integration test against the
-  real container.
+  inside the ARTEX container, the containment audit, the SSRF pivot test, and
+  the Go client's integration test against the real container.
 
 ## ARTEX interface
 

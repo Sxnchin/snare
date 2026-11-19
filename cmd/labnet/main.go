@@ -1,7 +1,7 @@
 // Command labnet runs the compose lab's network helpers.
 //
 //	labnet egress  -listen :3128 -allow "api.openai.com,api.anthropic.com"
-//	labnet forward -listen :8787 -to artex:8787
+//	labnet forward -map :8787=artex:8787 [-map :8000=snare:8000 ...]
 //	labnet probe   -url http://127.0.0.1:3128/healthz   (container healthcheck)
 package main
 
@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -68,20 +69,34 @@ func egress(ctx context.Context, args []string, log *slog.Logger) error {
 	return nil
 }
 
+// mapFlag collects repeated -map listen=to values.
+type mapFlag []string
+
+func (m *mapFlag) String() string     { return fmt.Sprint(*m) }
+func (m *mapFlag) Set(v string) error { *m = append(*m, v); return nil }
+
 func forward(ctx context.Context, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("forward", flag.ExitOnError)
-	listen := fs.String("listen", ":8787", "listen address")
-	to := fs.String("to", "", "fixed destination host:port")
+	var maps mapFlag
+	fs.Var(&maps, "map", "listen=host:port, repeatable; each listener dials only its fixed destination")
 	_ = fs.Parse(args)
-	if *to == "" {
-		return fmt.Errorf("-to is required")
+	if len(maps) == 0 {
+		return fmt.Errorf("at least one -map listen=host:port is required")
 	}
-	ln, err := net.Listen("tcp", *listen)
-	if err != nil {
-		return err
+	errc := make(chan error, len(maps))
+	for _, m := range maps {
+		listen, to, ok := strings.Cut(m, "=")
+		if !ok || listen == "" || to == "" {
+			return fmt.Errorf("bad -map %q, want listen=host:port", m)
+		}
+		ln, err := net.Listen("tcp", listen)
+		if err != nil {
+			return err
+		}
+		log.Info("forwarding", "listen", listen, "to", to)
+		go func() { errc <- (&labnet.Forward{To: to, Log: log}).Serve(ctx, ln) }()
 	}
-	log.Info("forwarding", "listen", *listen, "to", *to)
-	return (&labnet.Forward{To: *to, Log: log}).Serve(ctx, ln)
+	return <-errc
 }
 
 // probe succeeds when something answers HTTP at url (any status).

@@ -183,6 +183,105 @@ test_egress() {
   log "egress test passed"
 }
 
+# Services allowed to sit on an ARTEX network and on a non-internal one.
+CONTAINMENT_EXCEPTIONS="egress artex-ui"
+
+# test_containment enforces the containment rule: ARTEX and every container
+# ARTEX can reach (shares a network with) must be on internal networks only.
+# The exceptions are the egress proxy (allowlisted LLM hosts only) and the
+# artex-ui forwarder (dials only artex:8787). New services, such as the M1
+# Playwright runner, are covered automatically.
+test_containment() {
+  local fails=0 artex nets net c svc cnets n internal
+  pass() { printf '  PASS  %s\n' "$*"; }
+  fail() { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
+  echo "containment audit"
+  artex=$("${COMPOSE[@]}" ps -q artex)
+  [[ -n $artex ]] || die "artex is not running"
+  nets=$(docker inspect "$artex" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}')
+  local -a reachable=()
+  for net in $nets; do
+    internal=$(docker network inspect "$net" --format '{{.Internal}}')
+    if [[ $internal == true ]]; then pass "artex network $net is internal"
+    else fail "artex is on non-internal network $net"; fi
+    for c in $(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}'); do
+      [[ " ${reachable[*]-} " == *" $c "* ]] || reachable+=("$c")
+    done
+  done
+  for c in ${reachable[@]+"${reachable[@]}"}; do
+    svc=$(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.service"}}')
+    [[ $svc == artex ]] && continue
+    if [[ " $CONTAINMENT_EXCEPTIONS " == *" $svc "* ]]; then
+      pass "$svc is a declared exception (fixed or allowlisted destinations only)"
+      continue
+    fi
+    cnets=$(docker inspect "$c" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}')
+    local ok=1
+    for n in $cnets; do
+      [[ $(docker network inspect "$n" --format '{{.Internal}}') == true ]] || { ok=0; fail "$svc (reachable from ARTEX) is on non-internal network $n"; }
+    done
+    (( ok )) && pass "$svc (reachable from ARTEX) is on internal networks only: $cnets"
+  done
+
+  # Behavioral probes: each reachable container fails to fetch an internet URL.
+  if "${COMPOSE[@]}" exec -T juice-shop /nodejs/bin/node -e \
+      "fetch('https://example.com').then(()=>process.exit(0),()=>process.exit(1))" >/dev/null 2>&1; then
+    fail "juice-shop can fetch https://example.com"
+  else pass "juice-shop cannot fetch https://example.com"; fi
+  if "${COMPOSE[@]}" exec -T postgres wget -q -T 5 -O /dev/null https://example.com >/dev/null 2>&1; then
+    fail "postgres can fetch https://example.com"
+  else pass "postgres cannot fetch https://example.com"; fi
+  if "${COMPOSE[@]}" exec -T snare /usr/local/bin/snare healthcheck -url https://example.com/ >/dev/null 2>&1; then
+    fail "snare can fetch https://example.com"
+  else pass "snare cannot fetch https://example.com"; fi
+  (( fails == 0 )) || die "containment audit: $fails check(s) failed"
+  log "containment audit passed"
+}
+
+# test_pivot tries the pivot an agent would use: Juice Shop's deliberate SSRF
+# (POST /profile/image/url fetches imageUrl server-side), driven from inside
+# the ARTEX container. Juice Shop stores an /assets/.../uploads/ path when the
+# fetch succeeds and the raw URL when it fails, which is how the result is
+# read back (after a fresh login, since whoami reads the login token).
+test_pivot() {
+  local fails=0 email pw tok img
+  pass() { printf '  PASS  %s\n' "$*"; }
+  fail() { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
+  ax() { "${COMPOSE[@]}" exec -T artex "$@"; }
+  local js=http://juice-shop:3000
+  echo "pivot test (Juice Shop SSRF, driven from ARTEX)"
+  email="pivot-$(randhex 4)@lab.test"
+  pw="Pivot-$(randhex 8)"
+  ax curl -fsS -o /dev/null -H 'Content-Type: application/json' \
+    --data "{\"email\":\"$email\",\"password\":\"$pw\",\"passwordRepeat\":\"$pw\"}" "$js/api/Users" ||
+    die "pivot test: could not register a Juice Shop user"
+  jlogin() {
+    ax curl -fsS -H 'Content-Type: application/json' \
+      --data "{\"email\":\"$email\",\"password\":\"$pw\"}" "$js/rest/user/login" |
+      sed -n 's/.*"token":"\([^"]*\)".*/\1/p'
+  }
+  ssrf() { # url -> prints the stored profileImage
+    tok=$(jlogin)
+    [[ -n $tok ]] || die "pivot test: Juice Shop login failed"
+    ax curl -s -o /dev/null -b "token=$tok" --data-urlencode "imageUrl=$1" "$js/profile/image/url"
+    tok=$(jlogin)
+    ax curl -fsS -b "token=$tok" "$js/rest/user/whoami" | sed -n 's/.*"profileImage":"\([^"]*\)".*/\1/p'
+  }
+  img=$(ssrf http://snare:8780/healthz)
+  if [[ $img == /assets/public/images/uploads/* ]]; then
+    pass "control: SSRF route fetches lab-internal http://snare:8780/healthz (stored $img)"
+  else fail "control: SSRF route could not fetch a lab URL (stored '$img')"; fi
+  img=$(ssrf https://example.com/)
+  if [[ $img == https://example.com/ ]]; then
+    pass "SSRF route cannot fetch https://example.com/ (Juice Shop fell back to storing the URL)"
+  else fail "SSRF route fetched https://example.com/ (stored '$img')"; fi
+  local why
+  why=$("${COMPOSE[@]}" logs --since 2m juice-shop 2>/dev/null | grep -o 'Error retrieving user profile image: [^;]*' | tail -1 || true)
+  [[ -n $why ]] && printf '        juice-shop log: %s\n' "$why"
+  (( fails == 0 )) || die "pivot test: $fails check(s) failed"
+  log "pivot test passed"
+}
+
 # test_login runs the Go client's integration test against the real ARTEX.
 test_login() {
   (cd ../.. && SNARE_LAB_ARTEX_URL=$ARTEX_API \
@@ -211,9 +310,9 @@ case $cmd in
   bootstrap) ensure_env; bootstrap; harden_artex ;;
   status) ensure_env; status ;;
   check) ensure_env; check_snare ;;
-  test-egress) ensure_env; test_egress ;;
+  test-egress) ensure_env; test_egress; test_containment; test_pivot ;;
   test-login) ensure_env; test_login ;;
-  test) ensure_env; check_snare; test_egress; test_login ;;
+  test) ensure_env; check_snare; test_egress; test_containment; test_pivot; test_login ;;
   logs) ensure_env; "${COMPOSE[@]}" logs "$@" ;;
   down) ensure_env; "${COMPOSE[@]}" down "$@" ;;
   *) echo "usage: $0 up | down [-v] | status | check | test | test-egress | test-login | bootstrap | logs [service]" >&2; exit 2 ;;

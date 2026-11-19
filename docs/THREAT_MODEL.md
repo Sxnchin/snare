@@ -32,8 +32,33 @@ Initial version (M0). It is extended as each component lands.
 | ARTEX output to compiler | Findings are data; deterministic templates; any model draft is only a candidate | M4 |
 | Snare to ARTEX (active mode) | Ownership verification before every task; forced brakes; refusal tested | M7 |
 | ARTEX to the internet (lab) | Internal-only networks; allowlisting egress proxy for the LLM host; isolation test from inside the container | M0 |
+| ARTEX through a reachable container (pivot) | Containment rule (below); structural audit of every container on every ARTEX network; SSRF pivot test through Juice Shop | M0 |
 | Operator to Snare API | Bearer token, loopback bind by default | M0 |
 | Code to action log | Append-only triggers, actor limited to `policy` or `human` | M0 |
+
+## Containment rule
+
+Any container reachable from ARTEX is part of the containment boundary.
+ARTEX and every container that shares a network with it must have no route to
+the internet. Otherwise ARTEX can pivot: Juice Shop has a deliberate SSRF
+(`POST /profile/image/url` fetches any URL server-side), and any proxying or
+URL-fetching service would work the same way. The only exceptions are the
+egress proxy (allowlisted LLM hosts only) and the ARTEX UI forwarder (dials
+only `artex:8787`). `deploy/compose/lab.sh test-egress` audits every container
+on every ARTEX network, so a new service that breaks the rule fails the test.
+When Snare needs AWS access for rotation (M6), it gets its own allowlisting
+egress proxy on a network ARTEX is not attached to, never a direct route.
+
+## Data sent to the LLM provider
+
+In active mode, ARTEX sends what it sees to the configured LLM provider: the
+target's HTTP responses, tool output (scanner results, page contents, error
+messages), and anything those contain, including data from the target that
+may be sensitive. Snare cannot prevent this; it is how an LLM-driven tester
+works. **For sensitive targets, use a local model** (for example Ollama on the
+lab network, which ARTEX supports keyless), so nothing leaves your machines.
+Passive mode sends nothing to any model, and real user traffic is never sent
+to a model in either mode.
 
 ## Honest limits
 
@@ -49,9 +74,9 @@ Initial version (M0). It is extended as each component lands.
   time, occupied worker slots, operator attention, runs that end with nothing,
   and fingerprinting telemetry, more than money burned.
 - **The lab's ARTEX can reach its LLM provider.** The network is the boundary:
-  ARTEX is on internal-only networks and its single way out is an allowlisting
-  proxy that permits only the configured LLM hosts. A compromised ARTEX could
-  still send data to that LLM host; that is inherent in using a hosted model.
-  A local model (Ollama on the lab network) removes even that path.
+  ARTEX and everything it can reach are on internal-only networks, and its
+  single way out is an allowlisting proxy that permits only the configured
+  LLM hosts. A compromised ARTEX could still send data to that LLM host; that
+  is inherent in using a hosted model. A local model removes even that path.
 - **A root attacker on the Snare host** can read the key file and the
   database. Snare does not defend against a compromised host.

@@ -6,15 +6,20 @@
 #   ./lab.sh test-egress  prove ARTEX can reach only the allowed LLM hosts
 #   ./lab.sh down         stop (add -v to drop volumes)
 #
-# The network is the boundary that keeps ARTEX on lab targets. ARTEX is
-# attached only to internal networks, which have no route to the internet:
+# The network is the boundary that keeps ARTEX on lab targets. Containment
+# rule: ARTEX and every container ARTEX can reach are on internal networks
+# only, which have no route to the internet. Otherwise ARTEX could pivot
+# through a reachable container, for example Juice Shop's deliberate SSRF.
+# The only exceptions are egress (allowlisted LLM hosts) and artex-ui (dials
+# only artex:8787). lab.sh test-egress audits this.
 #
-#   lab          internal  snare, juice-shop, artex
+#   lab          internal  artex, juice-shop, snare (and playwright from M1)
 #   artex-db     internal  artex, postgres
 #   llm-egress   internal  artex, egress   (ARTEX_LLM_PROXY=http://egress:3128)
 #   artex-admin  internal  artex, artex-ui
+#   snare-admin  internal  snare, snare-ports   (ARTEX is not on it)
 #   outbound     bridge    egress only: the single way out, allowlisted hosts only
-#   front        bridge    snare, artex-ui: host loopback port publishing
+#   front        bridge    artex-ui, snare-ports: host loopback port publishing
 name: snare-lab
 
 services:
@@ -136,7 +141,7 @@ services:
     depends_on:
       egress:
         condition: service_started
-    entrypoint: ["/usr/local/bin/labnet", "forward", "-listen", ":8787", "-to", "artex:8787"]
+    entrypoint: ["/usr/local/bin/labnet", "forward", "-map", ":8787=artex:8787"]
     command: []
     networks: [artex-admin, front]
     ports:
@@ -152,7 +157,9 @@ services:
     build:
       context: ../..
     image: snare-lab/snare:dev
-    networks: [lab, front]
+    # Internal networks only: ARTEX can reach Snare, so Snare must not be a
+    # way out. Its ports reach the host through snare-ports.
+    networks: [lab, snare-admin]
     secrets:
       - snare_api_token
       - artex_admin_password
@@ -160,9 +167,6 @@ services:
     volumes:
       - ./snare.lab.yaml:/etc/snare/snare.yaml:ro
       - snare-data:/var/lib/snare
-    ports:
-      - "127.0.0.1:8000:8000"   # gateway (protected Juice Shop)
-      - "127.0.0.1:8780:8780"   # Snare API and UI
     depends_on:
       juice-shop:
         condition: service_healthy
@@ -173,6 +177,29 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # Fixed-destination forwarder that publishes Snare's ports on host
+  # loopback. It shares only snare-admin with Snare, so ARTEX cannot reach it.
+  snare-ports:
+    build:
+      context: ../..
+    image: snare-lab/snare:dev
+    depends_on:
+      snare:
+        condition: service_started
+    entrypoint: ["/usr/local/bin/labnet", "forward",
+      "-map", ":8000=snare:8000", "-map", ":8780=snare:8780"]
+    command: []
+    networks: [snare-admin, front]
+    ports:
+      - "127.0.0.1:8000:8000"   # gateway (protected Juice Shop)
+      - "127.0.0.1:8780:8780"   # Snare API and UI
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/labnet", "probe", "-url", "http://127.0.0.1:8780/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    restart: unless-stopped
+
 networks:
   lab:
     internal: true
@@ -181,6 +208,8 @@ networks:
   llm-egress:
     internal: true
   artex-admin:
+    internal: true
+  snare-admin:
     internal: true
   outbound: {}
   front: {}

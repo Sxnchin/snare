@@ -57,10 +57,12 @@ toolchain and a browser). Everything binds to 127.0.0.1:
 | 8780 | Snare API (`Authorization: Bearer $(cat deploy/compose/secrets/snare_api_token)`) |
 | 8787 | ARTEX UI through a loopback forwarder (user `ARTEX`, password in `deploy/compose/secrets/artex_admin_password`) |
 
-Juice Shop has no internet access and is not published on the host. ARTEX is
-on internal-only networks: its only way out is an egress proxy that allows
-just the LLM provider hosts in `LLM_EGRESS_ALLOW`. `./lab.sh test` proves it
-from inside the ARTEX container and logs Snare's ARTEX client in to the real
+Juice Shop has no internet access and is not published on the host. ARTEX,
+and every container ARTEX can reach, is on internal-only networks: its only
+way out is an egress proxy that allows just the LLM provider hosts in
+`LLM_EGRESS_ALLOW`. `./lab.sh test` proves it
+from inside the ARTEX container (including a pivot attempt through Juice
+Shop's SSRF) and logs Snare's ARTEX client in to the real
 container. No LLM key is configured by the lab; set one in
 `deploy/compose/.env` yourself.
 
@@ -84,6 +86,13 @@ go test -race ./...
   needs an explicit opt-in, and Snare forces ARTEX's brakes on: target gate,
   quiet noise profile, task and intent budgets, and approval for
   state-changing requests.
+
+**In active mode, the target's responses are sent to the LLM provider you
+configure for ARTEX.** ARTEX is an LLM-driven tester: page contents, error
+messages, and tool output from the target go to the model. For sensitive
+targets, use a local model (for example Ollama, which ARTEX supports without
+an API key) so nothing leaves your machines. Passive mode sends nothing to any
+model.
 
 ## The autonomy rule
 
