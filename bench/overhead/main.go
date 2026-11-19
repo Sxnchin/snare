@@ -5,7 +5,8 @@
 //
 // It starts an upstream that serves a JSON body of -size bytes, then times the
 // same GET sent directly and through the gateway, interleaved, for two route
-// modes: pass-through (detect mode, no rules yet) and record (redaction,
+// modes: detect (proxy only; no rules exist yet) and record (the spec's
+// "pass-through, recording only" mode: proxy plus redaction,
 // encryption and a SQLite write per exchange, off the request path).
 package main
 
@@ -106,7 +107,7 @@ func run(n, size int, out string) error {
 		time.Now().UTC().Format("2006-01-02"), runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), n, len(body))
 	fmt.Fprintf(&b, "| Route mode | direct p50 | gateway p50 | added p50 | added p95 | added p99 |\n|---|---|---|---|---|---|\n")
 	for _, r := range rows {
-		name := map[string]string{"pass": "pass-through (detect, no rules)", "record": "record (redact + encrypt + store)"}[r.mode]
+		name := map[string]string{"pass": "detect (proxy only, no rules yet)", "record": "record (pass-through + redact, encrypt, store)"}[r.mode]
 		fmt.Fprintf(&b, "| %s | %s ms | %s ms | %s ms | %s ms | %s ms |\n", name,
 			labnet.Ms(r.direct.P50), labnet.Ms(r.g.P50), labnet.Ms(r.g.P50-r.direct.P50),
 			labnet.Ms(r.g.P95-r.direct.P95), labnet.Ms(r.g.P99-r.direct.P99))

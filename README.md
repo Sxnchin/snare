@@ -78,15 +78,18 @@ Recording legitimate traffic (milestone M1):
 
 ## Gateway overhead
 
-Measured 2026-11-18 on the lab machine (Apple silicon, Docker Desktop).
+Measured 2026-11-19 on the lab machine (Apple silicon, Docker Desktop).
 Details and method: [bench/results/2026-11-18-gateway-overhead.md](bench/results/2026-11-18-gateway-overhead.md).
 
 | Measurement | added p50 | added p99 |
 | --- | --- | --- |
-| In-process, pass-through (`go run ./bench/overhead`) | 0.04 ms | 0.09 ms |
-| In-process, record mode (redact, encrypt, store) | 0.04 ms | 0.10 ms |
-| Lab, Juice Shop API search, record mode | 0.00 ms | 0.31 ms |
-| Lab, Juice Shop static image, record mode | 0.07 ms | 0.26 ms |
+| In-process, `record` mode (pass-through + redact, encrypt, store; `go run ./bench/overhead`) | 0.04 ms | 0.10 ms |
+| In-process, `detect` mode (proxy only, no rules yet) | 0.04 ms | 0.09 ms |
+| Lab, Juice Shop API search, `record` mode | 0.08 ms | -0.07 ms (noise) |
+| Lab, Juice Shop static image, `record` mode | 0.08 ms | 0.35 ms |
+
+`./lab.sh latency` runs against a throwaway gateway, so benchmark requests
+never enter the lab corpus.
 
 The target is under 5 ms at p50. Coraza rules are not in the path yet (M4);
 the numbers will be measured again then.

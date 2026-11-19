@@ -80,3 +80,8 @@ to a model in either mode.
   is inherent in using a hosted model. A local model removes even that path.
 - **A root attacker on the Snare host** can read the key file and the
   database. Snare does not defend against a compromised host.
+- **A copied data directory includes the default key.** The default key file
+  sits next to the database, so encryption at rest only helps when the
+  database leaves without it (a backup of the database file alone, a stolen
+  disk image of a separate volume). Set `SNARE_SECRET_KEY` or keep
+  `secrets.key_file` on a separate mount to make it count.

@@ -336,6 +336,39 @@ test_login() {
     go test -tags lab -count=1 -v -run TestLab ./internal/artex/)
 }
 
+# latency times the same Juice Shop request directly and through a throwaway
+# Snare gateway, from a throwaway container on the lab network. The
+# throwaway Snare keeps its store in its own /tmp, so benchmark requests never
+# reach the lab corpus. Mode is detect (proxy only until rules exist in M4)
+# or record (spec 7.1 "pass-through, recording only": also redact, encrypt
+# and store each request).
+latency() {
+  local path=${1:-/rest/products/search?q=apple} n=${2:-2000} mode=${3:-detect} name i
+  [[ $mode == detect || $mode == record ]] || die "latency: mode must be detect or record"
+  name="snare-latency-$(randhex 3)"
+  mkdir -p run
+  cat >"run/$name.yaml" <<EOF
+# Throwaway gateway for ./lab.sh latency. Deleted when the run ends.
+server: {listen: 0.0.0.0:8780, allow_non_loopback: true, api_token_file: /tmp/api.token}
+store: {path: /tmp/snare.db}
+secrets: {key_file: /tmp/secret.key}
+gateway:
+  listen: 0.0.0.0:8000
+  routes: [{name: juice-shop, path_prefix: /, upstream: "http://juice-shop:3000", mode: $mode}]
+EOF
+  # shellcheck disable=SC2064
+  trap "docker stop -t 1 $name >/dev/null 2>&1 || true; rm -f run/$name.yaml" EXIT
+  "${COMPOSE[@]}" run -d --rm --no-deps --name "$name" \
+    -v "$PWD/run/$name.yaml:/etc/snare/latency.yaml:ro" snare serve -config /etc/snare/latency.yaml >/dev/null
+  for i in $(seq 1 50); do
+    [[ $(docker inspect -f '{{.State.Health.Status}}' "$name" 2>/dev/null) == healthy ]] && break
+    sleep 0.2
+  done
+  echo "route mode: $mode (throwaway gateway $name; the lab corpus is not touched)"
+  "${COMPOSE[@]}" run --rm --no-deps --entrypoint /usr/local/bin/labnet snare latency \
+    -direct "http://juice-shop:3000$path" -gateway "http://$name:8000$path" -n "$n"
+}
+
 status() {
   "${COMPOSE[@]}" ps --format 'table {{.Service}}\t{{.Status}}'
 }
@@ -361,17 +394,10 @@ case $cmd in
   test-login) ensure_env; test_login ;;
   test) ensure_env; check_snare; test_egress; test_containment; test_pivot; test_login ;;
   traffic) ensure_env; traffic "$@" ;;
-  latency)
-    # Same Juice Shop request directly and through Snare's gateway, from a
-    # throwaway container on the lab network (route in record mode).
-    ensure_env
-    path=${1:-/rest/products/search?q=apple}
-    "${COMPOSE[@]}" run --rm --no-deps --entrypoint /usr/local/bin/labnet snare latency \
-      -direct "http://juice-shop:3000$path" -gateway "http://snare:8000$path" -n "${2:-2000}"
-    ;;
+  latency) ensure_env; latency "$@" ;;
   corpus-check) ensure_env; corpus_check ;;
   coverage) ensure_env; "${COMPOSE[@]}" exec -T snare /usr/local/bin/snare corpus coverage -config /etc/snare/snare.yaml "$@" ;;
   logs) ensure_env; "${COMPOSE[@]}" logs "$@" ;;
   down) ensure_env; "${COMPOSE[@]}" down "$@" ;;
-  *) echo "usage: $0 up | down [-v] | status | check | test | test-egress | test-login | traffic | corpus-check | coverage | latency [path] [n] | bootstrap | logs [service]" >&2; exit 2 ;;
+  *) echo "usage: $0 up | down [-v] | status | check | test | test-egress | test-login | traffic | corpus-check | coverage | latency [path] [n] [detect|record] | bootstrap | logs [service]" >&2; exit 2 ;;
 esac
