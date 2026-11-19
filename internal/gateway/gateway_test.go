@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/snare-dev/snare/internal/config"
-	"github.com/snare-dev/snare/internal/recorder"
-	"github.com/snare-dev/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/config"
+	"github.com/Sxnchin/snare/internal/recorder"
+	"github.com/Sxnchin/snare/internal/store"
 )
 
 func limits() config.Limits {

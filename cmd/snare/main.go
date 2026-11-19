@@ -14,12 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/snare-dev/snare/internal/artex"
-	"github.com/snare-dev/snare/internal/config"
-	"github.com/snare-dev/snare/internal/gateway"
-	"github.com/snare-dev/snare/internal/recorder"
-	"github.com/snare-dev/snare/internal/store"
-	"github.com/snare-dev/snare/internal/ui"
+	"github.com/Sxnchin/snare/internal/artex"
+	"github.com/Sxnchin/snare/internal/config"
+	"github.com/Sxnchin/snare/internal/gateway"
+	"github.com/Sxnchin/snare/internal/recorder"
+	"github.com/Sxnchin/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/ui"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -208,11 +208,15 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	go rec.Run(recCtx)
 	defer func() { stopRec(); rec.Wait() }() // drain queued exchanges on shutdown
 
+	exclude := gateway.NewExclusions(cfg.Recorder.ExcludeSources, cfg.Recorder.ExcludeUserAgents, log)
+	exclude.Refresh(ctx)
+	go exclude.Run(recCtx, 5*time.Second)
 	gw, err := gateway.New(gateway.Options{
 		Routes:         cfg.Gateway.Routes,
 		Limits:         cfg.Gateway.Limits,
 		TrustedProxies: cfg.Gateway.TrustedProxies,
 		Recorder:       rec,
+		Exclusions:     exclude,
 		Log:            log,
 	})
 	if err != nil {

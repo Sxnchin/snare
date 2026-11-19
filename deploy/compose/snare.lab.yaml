@@ -19,6 +19,12 @@ gateway:
       upstream: http://juice-shop:3000
       mode: record
 
+recorder:
+  # ARTEX's traffic through the gateway is attack traffic, never benign
+  # corpus. Hostnames are re-resolved every few seconds; while "artex" does
+  # not resolve, nothing is recorded.
+  exclude_sources: [artex]
+
 artex:
   url: http://artex:8787
   username: ARTEX

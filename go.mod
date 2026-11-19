@@ -1,6 +1,7 @@
 // TODO(rename): "Snare" is a working name that collides with existing security
-// products. The module path is a placeholder; see docs/ASSUMPTIONS.md.
-module github.com/snare-dev/snare
+// products and may change. The module path follows the repository at
+// github.com/Sxnchin/snare; see docs/ASSUMPTIONS.md.
+module github.com/Sxnchin/snare
 
 go 1.26.10
 

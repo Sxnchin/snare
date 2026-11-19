@@ -1,0 +1,26 @@
+# gitleaks findings that are known test fixtures, not secrets.
+#
+# Every entry is an obviously fake value. Fingerprints are
+# <commit>:<file>:<rule>:<line> for history scans (gitleaks git) and
+# <file>:<rule>:<line> for working-tree scans (gitleaks dir). In Go and other
+# files that allow comments, prefer a trailing "gitleaks:allow" comment on the
+# line instead of an entry here. See CONTRIBUTING.md.
+
+# bench/samples/juice-shop-sample.har: a hand-written JWT whose payload is
+# {"sub":"lab-sample"} and whose signature is the text "sample-signature".
+# JSON has no comments, so these lines are listed here.
+cb2b55941874a1a5a0e2c3b4fa956a042457a590:bench/samples/juice-shop-sample.har:jwt:72
+cb2b55941874a1a5a0e2c3b4fa956a042457a590:bench/samples/juice-shop-sample.har:jwt:95
+cb2b55941874a1a5a0e2c3b4fa956a042457a590:bench/samples/juice-shop-sample.har:jwt:102
+cb2b55941874a1a5a0e2c3b4fa956a042457a590:bench/samples/juice-shop-sample.har:jwt:265
+bench/samples/juice-shop-sample.har:jwt:72
+bench/samples/juice-shop-sample.har:jwt:95
+bench/samples/juice-shop-sample.har:jwt:102
+bench/samples/juice-shop-sample.har:jwt:265
+
+# internal/recorder/redact_test.go as committed in 7af9c14, before the
+# gitleaks:allow comments were added: the public jwt.io example token (line
+# 13) and the planted value "PlantedSecret-9f3a" (line 209, two findings, one
+# fingerprint).
+7af9c1480c23487a454215af17069df4a38c195e:internal/recorder/redact_test.go:jwt:13
+7af9c1480c23487a454215af17069df4a38c195e:internal/recorder/redact_test.go:generic-api-key:209

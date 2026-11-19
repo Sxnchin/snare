@@ -10,7 +10,7 @@ import (
 
 // Test values. Card numbers are well-known test numbers; keys are fake.
 const (
-	testJWT   = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+	testJWT   = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U" // gitleaks:allow (the public jwt.io example token)
 	testEmail = "alice.smith+test@example.co.uk"
 	testCard  = "4111 1111 1111 1111"
 	testAWS   = "AKIAIOSFODNN7EXAMPLE"
@@ -206,7 +206,7 @@ func FuzzJSON(f *testing.F) {
 		_, _ = r.Body("application/json", body)
 		_, _ = r.Body("", body)
 		_, _ = r.Body("application/x-www-form-urlencoded", body)
-		planted, _ := json.Marshal(map[string]any{"password": "PlantedSecret-9f3a", "other": key, "nested": map[string]any{"token": "PlantedSecret-9f3a"}})
+		planted, _ := json.Marshal(map[string]any{"password": "PlantedSecret-9f3a", "other": key, "nested": map[string]any{"token": "PlantedSecret-9f3a"}}) // gitleaks:allow (planted fake value)
 		out, _, ok := r.JSON(planted)
 		if !ok || strings.Contains(out, "PlantedSecret-9f3a") {
 			t.Fatalf("planted secret survived: %s", out)

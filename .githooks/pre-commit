@@ -1,0 +1,10 @@
+#!/bin/sh
+# Optional pre-commit hook: scans the staged changes for secrets with
+# gitleaks. Enable it with:  git config core.hooksPath .githooks
+# Known test fixtures are allowlisted in .gitleaksignore or with a trailing
+# "gitleaks:allow" comment; see CONTRIBUTING.md.
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks not installed; skipping the secret scan (see CONTRIBUTING.md)" >&2
+  exit 0
+fi
+exec gitleaks git --pre-commit --staged --redact --no-banner .

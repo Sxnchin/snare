@@ -78,6 +78,13 @@ to a model in either mode.
   single way out is an allowlisting proxy that permits only the configured
   LLM hosts. A compromised ARTEX could still send data to that LLM host; that
   is inherent in using a hosted model. A local model removes even that path.
+- **Attack traffic in the benign corpus.** Rules are validated against the
+  recorded corpus, so attack requests recorded as "benign" would teach the
+  gate that the attack is normal. Snare's own scanner (ARTEX) is excluded by
+  address (`recorder.exclude_sources`, failing closed when its hostname does
+  not resolve), and common scanner User-Agents are excluded. An outside
+  attacker probing during the learning period is not caught by either; that
+  is the detector's job (M2), and its exclusion applies from then on.
 - **A root attacker on the Snare host** can read the key file and the
   database. Snare does not defend against a compromised host.
 - **A copied data directory includes the default key.** The default key file

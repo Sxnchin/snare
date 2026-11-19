@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/snare-dev/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/store"
 )
 
 func openStore(t *testing.T, path string) *store.Store {

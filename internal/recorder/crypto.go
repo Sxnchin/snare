@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/snare-dev/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/store"
 )
 
 // KeyEnv is the environment variable that supplies the encryption key (32

@@ -13,9 +13,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/snare-dev/snare/internal/config"
-	"github.com/snare-dev/snare/internal/recorder"
-	"github.com/snare-dev/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/config"
+	"github.com/Sxnchin/snare/internal/recorder"
+	"github.com/Sxnchin/snare/internal/store"
 )
 
 // cmdCorpus works on the store directly, so it runs next to a live server

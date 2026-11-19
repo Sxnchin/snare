@@ -329,6 +329,41 @@ corpus_check() {
   log "corpus check passed"
 }
 
+# test_corpus_exclusion sends requests through Snare's gateway from the ARTEX
+# container (excluded by source) and with a scanner User-Agent from the Juice
+# Shop container (excluded by User-Agent), and fails if the corpus grows.
+# A browser-like request from Juice Shop is the control: it must be recorded.
+test_corpus_exclusion() {
+  local tok before after mid i st fails=0
+  pass() { printf '  PASS  %s\n' "$*"; }
+  fail() { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
+  tok=$(cat "$SECRETS/snare_api_token")
+  stored() { curl -fsS -H "Authorization: Bearer $tok" "$SNARE_API/api/corpus/coverage" | sed -n 's/^{"routes":\[{"route":"juice-shop","requests":\([0-9]*\).*/\1/p'; }
+  settle() { sleep 1.5; } # the recorder writes in batches off the request path
+  echo "corpus exclusion test (scanner traffic must not enter the benign corpus)"
+  before=$(stored); before=${before:-0}
+  for i in 1 2 3 4 5; do
+    "${COMPOSE[@]}" exec -T artex curl -fsS -o /dev/null "http://snare:8000/rest/products/search?q=excl$i" ||
+      die "corpus exclusion: ARTEX could not reach Snare's gateway"
+  done
+  "${COMPOSE[@]}" exec -T juice-shop /nodejs/bin/node -e \
+    "fetch('http://snare:8000/rest/products/search?q=ua',{headers:{'User-Agent':'sqlmap/1.8.2#stable (https://sqlmap.org)'}}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" ||
+    die "corpus exclusion: Juice Shop could not reach Snare's gateway"
+  settle; mid=$(stored); mid=${mid:-0}
+  if [[ $mid == "$before" ]]; then pass "5 requests from ARTEX and 1 with a sqlmap User-Agent were proxied and not recorded ($before stored before and after)"
+  else fail "corpus grew from $before to $mid on scanner traffic"; fi
+  "${COMPOSE[@]}" exec -T juice-shop /nodejs/bin/node -e \
+    "fetch('http://snare:8000/rest/products/search?q=control',{headers:{'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) Chrome/159.0'}}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" ||
+    die "corpus exclusion: control request failed"
+  settle; after=$(stored); after=${after:-0}
+  if (( after == mid + 1 )); then pass "control: a browser-like request from another container is recorded ($mid -> $after)"
+  else fail "control: expected $((mid + 1)) stored, got $after"; fi
+  st=$(curl -fsS -H "Authorization: Bearer $tok" "$SNARE_API/api/status" | grep -o '"excluded_[a-z_]*":[0-9]*' | tr '\n' ' ')
+  printf '        gateway counters: %s\n' "$st"
+  (( fails == 0 )) || die "corpus exclusion: $fails check(s) failed"
+  log "corpus exclusion test passed"
+}
+
 # test_login runs the Go client's integration test against the real ARTEX.
 test_login() {
   (cd ../.. && SNARE_LAB_ARTEX_URL=$ARTEX_API \
@@ -392,12 +427,13 @@ case $cmd in
   check) ensure_env; check_snare ;;
   test-egress) ensure_env; test_egress; test_containment; test_pivot ;;
   test-login) ensure_env; test_login ;;
-  test) ensure_env; check_snare; test_egress; test_containment; test_pivot; test_login ;;
+  test) ensure_env; check_snare; test_egress; test_containment; test_pivot; test_corpus_exclusion; test_login ;;
+  test-exclusion) ensure_env; test_corpus_exclusion ;;
   traffic) ensure_env; traffic "$@" ;;
   latency) ensure_env; latency "$@" ;;
   corpus-check) ensure_env; corpus_check ;;
   coverage) ensure_env; "${COMPOSE[@]}" exec -T snare /usr/local/bin/snare corpus coverage -config /etc/snare/snare.yaml "$@" ;;
   logs) ensure_env; "${COMPOSE[@]}" logs "$@" ;;
   down) ensure_env; "${COMPOSE[@]}" down "$@" ;;
-  *) echo "usage: $0 up | down [-v] | status | check | test | test-egress | test-login | traffic | corpus-check | coverage | latency [path] [n] [detect|record] | bootstrap | logs [service]" >&2; exit 2 ;;
+  *) echo "usage: $0 up | down [-v] | status | check | test | test-egress | test-exclusion | test-login | traffic | corpus-check | coverage | latency [path] [n] [detect|record] | bootstrap | logs [service]" >&2; exit 2 ;;
 esac

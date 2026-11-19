@@ -22,7 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/snare-dev/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/store"
 )
 
 // Sources of an exchange.

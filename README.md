@@ -1,8 +1,9 @@
 # Snare
 
 > **TODO(rename):** "Snare" is a working name. It collides with existing
-> security products and will change before any public release. Nothing has
-> been published under this name.
+> security products and may still change, along with the repository
+> (`github.com/Sxnchin/snare`) and the Go module path. No image or package has
+> been published.
 
 Snare is an open-source defense against autonomous attack agents. It runs an
 unmodified [ARTEX](https://github.com/BaaRai/ARTEX) against systems you have
@@ -41,7 +42,7 @@ extracted from the release zip). See `docs/ASSUMPTIONS.md` for the pinned
 commit.
 
 ```sh
-cd deploy/compose
+git clone https://github.com/Sxnchin/snare && cd snare/deploy/compose
 ./lab.sh up        # builds Snare and ARTEX, starts the lab, sets up ARTEX
 ./lab.sh status
 ./lab.sh down      # add -v to delete volumes
@@ -111,8 +112,11 @@ against later. Before anything is written:
 
 The redacted exchange is then encrypted with AES-256-GCM. Snare refuses to
 start if encrypted data exists and the key is missing or wrong. No client
-address is stored. Traffic the detector flags as agent-like is excluded
-(from M2). The full rules are in `docs/ASSUMPTIONS.md`. Add your own header
+address is stored. Scanner traffic is kept out: list the scanner's address or
+hostname under `recorder.exclude_sources` (the lab lists `artex`), and
+requests with a known scanner User-Agent (sqlmap, nuclei, ffuf, nikto and
+others) are never recorded. Excluded traffic is still proxied. Traffic the
+detector flags as agent-like is excluded too (from M2). The full rules are in `docs/ASSUMPTIONS.md`. Add your own header
 and field names under `recorder.redact` in `snare.yaml`.
 
 ## Building and testing

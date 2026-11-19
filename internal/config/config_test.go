@@ -153,3 +153,24 @@ func TestEnvNamesStable(t *testing.T) {
 		}
 	}
 }
+
+func TestExcludeSourcesValidation(t *testing.T) {
+	c := Default()
+	c.Recorder.ExcludeSources = []string{"artex", "10.0.0.7", "172.16.0.0/12", "scanner.lab.internal", "not a host", "-bad"}
+	c.Recorder.ExcludeUserAgents = []string{"crawler", " "}
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("want validation errors")
+	}
+	msg := err.Error()
+	for _, want := range []string{`exclude_sources[4]`, `exclude_sources[5]`, `exclude_user_agents[1]`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("missing %s in %s", want, msg)
+		}
+	}
+	for _, ok := range []string{`exclude_sources[0]`, `exclude_sources[1]`, `exclude_sources[2]`, `exclude_sources[3]`} {
+		if strings.Contains(msg, ok) {
+			t.Errorf("%s should be valid: %s", ok, msg)
+		}
+	}
+}

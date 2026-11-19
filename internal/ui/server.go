@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/snare-dev/snare/internal/artex"
-	"github.com/snare-dev/snare/internal/gateway"
-	"github.com/snare-dev/snare/internal/recorder"
-	"github.com/snare-dev/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/artex"
+	"github.com/Sxnchin/snare/internal/gateway"
+	"github.com/Sxnchin/snare/internal/recorder"
+	"github.com/Sxnchin/snare/internal/store"
 )
 
 // Server is the API and UI handler.

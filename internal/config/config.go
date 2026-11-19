@@ -103,6 +103,15 @@ type Recorder struct {
 	// exchanges are dropped (and counted) rather than slowing traffic.
 	QueueSize int    `yaml:"queue_size"`
 	Redact    Redact `yaml:"redact"`
+	// ExcludeSources are clients whose traffic is never recorded: IP
+	// addresses, CIDRs, or hostnames (resolved at start and every few
+	// seconds). Point this at the scanner, for example ARTEX's container.
+	// It only affects recording; the traffic is still proxied and, from M2,
+	// scored by the detector.
+	ExcludeSources []string `yaml:"exclude_sources"`
+	// ExcludeUserAgents are extra case-insensitive User-Agent substrings
+	// that are never recorded, on top of the built-in scanner list.
+	ExcludeUserAgents []string `yaml:"exclude_user_agents"`
 }
 
 // Redact lists additions to the built-in redaction rules.
@@ -289,6 +298,16 @@ func (c Config) Validate() error {
 	if c.Recorder.QueueSize <= 0 {
 		add("recorder.queue_size: must be positive")
 	}
+	for i, s := range c.Recorder.ExcludeSources {
+		if !validSource(s) {
+			add("recorder.exclude_sources[%d]: %q is not an IP address, CIDR or hostname", i, s)
+		}
+	}
+	for i, s := range c.Recorder.ExcludeUserAgents {
+		if strings.TrimSpace(s) == "" {
+			add("recorder.exclude_user_agents[%d]: empty", i)
+		}
+	}
 	names := map[string]bool{}
 	for i, r := range c.Gateway.Routes {
 		where := fmt.Sprintf("gateway.routes[%d]", i)
@@ -473,4 +492,36 @@ func setScalar(f reflect.Value, s string) error {
 		f.SetInt(n)
 	}
 	return nil
+}
+
+// validSource accepts an IP address, a CIDR, or a DNS hostname.
+func validSource(s string) bool {
+	if net.ParseIP(s) != nil {
+		return true
+	}
+	if _, _, err := net.ParseCIDR(s); err == nil {
+		return true
+	}
+	if s == "" || len(s) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(s, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !hostChar(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func hostChar(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+		return true
+	}
+	return false
 }

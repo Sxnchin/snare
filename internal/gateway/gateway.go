@@ -25,8 +25,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/snare-dev/snare/internal/config"
-	"github.com/snare-dev/snare/internal/recorder"
+	"github.com/Sxnchin/snare/internal/config"
+	"github.com/Sxnchin/snare/internal/recorder"
 )
 
 // Flagger reports sources the detector considers agent-like. Their traffic is
@@ -45,6 +45,12 @@ type Stats struct {
 	BodyTooLarge    int64 `json:"rejected_body_too_large"`
 	UpstreamErrors  int64 `json:"upstream_errors"`
 	ExcludedFlagged int64 `json:"excluded_agent_like"`
+	// Requests on a recording route kept out of the corpus by
+	// recorder.exclude_sources, the scanner User-Agent list, or because an
+	// excluded hostname could not be resolved.
+	ExcludedSource     int64 `json:"excluded_scanner_source"`
+	ExcludedAgent      int64 `json:"excluded_scanner_agent"`
+	ExcludedUnresolved int64 `json:"excluded_unresolved_source"`
 }
 
 type route struct {
@@ -59,6 +65,7 @@ type Gateway struct {
 	routes  []*route
 	rec     *recorder.Recorder
 	flagger Flagger
+	exclude *Exclusions
 	limits  config.Limits
 	trusted []*net.IPNet
 	log     *slog.Logger
@@ -70,6 +77,7 @@ type Gateway struct {
 
 	requests, recorded, noRoute, overloaded, perSourceLimit,
 	tooLarge, upstreamErrors, excluded atomic.Int64
+	exSource, exAgent, exUnresolved atomic.Int64
 }
 
 // Options configures New.
@@ -79,7 +87,10 @@ type Options struct {
 	TrustedProxies []string
 	Recorder       *recorder.Recorder // nil disables recording
 	Flagger        Flagger
-	Log            *slog.Logger
+	// Exclusions keeps scanner traffic out of the corpus; nil excludes
+	// nothing beyond the Flagger.
+	Exclusions *Exclusions
+	Log        *slog.Logger
 	// Transport overrides the upstream transport (tests).
 	Transport http.RoundTripper
 }
@@ -90,6 +101,7 @@ func New(opt Options) (*Gateway, error) {
 	g := &Gateway{
 		rec:       opt.Recorder,
 		flagger:   opt.Flagger,
+		exclude:   opt.Exclusions,
 		limits:    opt.Limits,
 		log:       opt.Log,
 		sem:       make(chan struct{}, opt.Limits.MaxConcurrent),
@@ -154,6 +166,8 @@ func (g *Gateway) Stats() Stats {
 		Overloaded: g.overloaded.Load(), PerSourceLimit: g.perSourceLimit.Load(),
 		BodyTooLarge: g.tooLarge.Load(), UpstreamErrors: g.upstreamErrors.Load(),
 		ExcludedFlagged: g.excluded.Load(),
+		ExcludedSource:  g.exSource.Load(), ExcludedAgent: g.exAgent.Load(),
+		ExcludedUnresolved: g.exUnresolved.Load(),
 	}
 }
 
@@ -299,7 +313,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 
-	record := g.shouldRecord(r.Context(), rt, src)
+	record := g.shouldRecord(r, rt, src)
 	if !record {
 		rt.proxy.ServeHTTP(w, r)
 		return
@@ -342,7 +356,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (g *Gateway) shouldRecord(ctx context.Context, rt *route, src string) bool {
+func (g *Gateway) shouldRecord(r *http.Request, rt *route, src string) bool {
 	if g.rec == nil || rt.cfg.Mode != config.ModeRecord {
 		return false
 	}
@@ -350,7 +364,18 @@ func (g *Gateway) shouldRecord(ctx context.Context, rt *route, src string) bool 
 		g.excluded.Add(1)
 		return false
 	}
-	return g.rec.Learning(ctx, rt.cfg.Name)
+	switch g.exclude.Match(src, r) {
+	case ExcludeSource:
+		g.exSource.Add(1)
+		return false
+	case ExcludeAgent:
+		g.exAgent.Add(1)
+		return false
+	case ExcludeUnresolved:
+		g.exUnresolved.Add(1)
+		return false
+	}
+	return g.rec.Learning(r.Context(), rt.cfg.Name)
 }
 
 // capture keeps the first limit bytes written and counts the total.

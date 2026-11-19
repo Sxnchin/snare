@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/snare-dev/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/store"
 )
 
 func newServer(t *testing.T) *Server {

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/snare-dev/snare/internal/config"
+	"github.com/Sxnchin/snare/internal/config"
 )
 
 func TestRunUsage(t *testing.T) {

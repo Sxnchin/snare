@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/snare-dev/snare/internal/labnet"
+	"github.com/Sxnchin/snare/internal/labnet"
 )
 
 func main() {

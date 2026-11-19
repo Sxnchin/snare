@@ -24,11 +24,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/snare-dev/snare/internal/config"
-	"github.com/snare-dev/snare/internal/gateway"
-	"github.com/snare-dev/snare/internal/labnet"
-	"github.com/snare-dev/snare/internal/recorder"
-	"github.com/snare-dev/snare/internal/store"
+	"github.com/Sxnchin/snare/internal/config"
+	"github.com/Sxnchin/snare/internal/gateway"
+	"github.com/Sxnchin/snare/internal/labnet"
+	"github.com/Sxnchin/snare/internal/recorder"
+	"github.com/Sxnchin/snare/internal/store"
 )
 
 func main() {

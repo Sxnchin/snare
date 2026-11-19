@@ -1,4 +1,10 @@
-/data/
+# Snare's default data directory (data/snare.db, data/secret.key,
+# data/api.token) is relative to the working directory, so it can appear
+# wherever snare or a test is run from, not only at the repository root.
+data/
+# Secrets by default file name, wherever they end up.
+secret.key
+api.token
 /snare
 *.db
 *.db-shm

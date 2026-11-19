@@ -19,7 +19,7 @@ linters:
         - (net.Listener).Close
         - (*database/sql.DB).Close
         - (*database/sql.Tx).Rollback
-        - (*github.com/snare-dev/snare/internal/store.Store).Close
+        - (*github.com/Sxnchin/snare/internal/store.Store).Close
         - os.Remove
         - os.RemoveAll
         - (*database/sql.Rows).Close

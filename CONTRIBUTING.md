@@ -29,8 +29,37 @@ go vet ./...
 gofmt -l .        # must print nothing
 ```
 
-CI also runs `golangci-lint`, `govulncheck`, and a dependency license check;
-the exact versions are in `.github/workflows/ci.yml`.
+CI also runs `golangci-lint`, `govulncheck`, a dependency license check, and
+a `gitleaks` scan of the full git history; the exact versions are in
+`.github/workflows/ci.yml`.
+
+## Secret scanning
+
+CI fails if `gitleaks git` finds anything in the history. To catch it before
+you commit, install gitleaks (8.30 or newer) and enable the optional hook,
+which scans only your staged changes:
+
+```sh
+git config core.hooksPath .githooks   # once per clone
+gitleaks git --redact -v .             # full history, same as CI
+```
+
+Test fixtures sometimes need values that look like secrets (a JWT for the
+redactor, a token in a sample HAR). Every such value must be obviously fake
+(for example `PlantedSecret-9f3a`, the public jwt.io example token, or a JWT
+whose signature decodes to `sample-signature`), and it must be allowlisted
+in the same change:
+
+- In files that allow comments, end the line with `// gitleaks:allow` and a
+  short reason.
+- In files that do not (JSON, HAR), add the finding's fingerprint to
+  `.gitleaksignore` with a comment saying what the value is. Fingerprints
+  include the line number, so moving the line means updating the entry.
+  Add both forms: `<commit>:<file>:<rule>:<line>` once the commit exists, and
+  `<file>:<rule>:<line>` for working-tree scans.
+
+Never allowlist a real credential. If one is committed, treat it as leaked:
+rotate it first, then remove it.
 
 For the full lab, see the README.
 
