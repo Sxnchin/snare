@@ -1,5 +1,9 @@
 # Snare
 
+> **TODO(rename):** "Snare" is a working name. It collides with existing
+> security products and will change before any public release. Nothing has
+> been published under this name.
+
 Snare is an open-source defense against autonomous attack agents. It runs an
 unmodified [ARTEX](https://github.com/BaaRai/ARTEX) against systems you have
 proven you own, and turns every verified finding into four defensive
@@ -51,9 +55,14 @@ toolchain and a browser). Everything binds to 127.0.0.1:
 | --- | --- |
 | 8000 | Snare gateway (Juice Shop behind it, from M1) |
 | 8780 | Snare API (`Authorization: Bearer $(cat deploy/compose/secrets/snare_api_token)`) |
-| 8787 | ARTEX UI (user `ARTEX`, password in `deploy/compose/secrets/artex_admin_password`) |
+| 8787 | ARTEX UI through a loopback forwarder (user `ARTEX`, password in `deploy/compose/secrets/artex_admin_password`) |
 
-Juice Shop has no internet access and is not published on the host.
+Juice Shop has no internet access and is not published on the host. ARTEX is
+on internal-only networks: its only way out is an egress proxy that allows
+just the LLM provider hosts in `LLM_EGRESS_ALLOW`. `./lab.sh test` proves it
+from inside the ARTEX container and logs Snare's ARTEX client in to the real
+container. No LLM key is configured by the lab; set one in
+`deploy/compose/.env` yourself.
 
 ## Building and testing
 

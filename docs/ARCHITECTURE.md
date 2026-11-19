@@ -100,29 +100,37 @@ mode needs an ARTEX instance reachable over HTTP.
 
 ## The lab
 
-`deploy/compose` defines the development lab:
+`deploy/compose` defines the development lab. The network is the boundary
+that keeps ARTEX on lab targets: ARTEX is attached only to Docker `internal`
+networks, which have no route or DNS to the internet.
 
 ```
-            host 127.0.0.1
-         8000 |   8780 |        8787 |
-              v        v             v
-  front  [  snare  ]          [  artex  ] -- artex-out --> LLM API
-              |                 |     |
-  lab    -----+--- juice-shop --+     +--- artex-db --- postgres
-       (internal: no internet)        (internal)
+ host 127.0.0.1:   8000, 8780                    8787
+                       |                           |
+ front (bridge)    [ snare ]                  [ artex-ui ]  fixed forwarder to artex:8787
+                       |                           |
+ lab (internal)   -----+---- juice-shop ----+      | artex-admin (internal)
+                                            |      |
+                                         [ artex ]-+
+                                            |  |
+ artex-db (internal)       postgres --------+  +-------- [ egress ] -- outbound (bridge) --> LLM host only
+                                              llm-egress (internal)
 ```
 
-- `lab` and `artex-db` are Docker `internal` networks with no route out.
-  Juice Shop is attached only to `lab`, so it cannot reach the internet and
-  the host can reach it only through Snare's gateway.
-- ARTEX has an outward network for its LLM provider. It is never given an
-  internet target; Snare enforces this with ownership verification and task
-  scope in active mode (M7).
-- `lab.sh up` generates secrets, builds Snare and ARTEX (from the pinned
-  checkout next to this repo), waits for health, and performs ARTEX's
-  first-run claim: it reads the one-time setup token from the ARTEX log and
-  calls `POST /api/auth/init`. It then calls Snare's `/api/status`, which must
-  report that Snare can log in to ARTEX.
+- Juice Shop is attached only to `lab`; the host reaches it only through
+  Snare's gateway.
+- ARTEX reaches the internet only through `egress`, an allowlisting CONNECT
+  proxy (`internal/labnet`) set as `ARTEX_LLM_PROXY`. It allows exactly the
+  hosts in `LLM_EGRESS_ALLOW` and refuses everything else.
+- ARTEX runs as an offline overlay of the unmodified image: nuclei templates
+  are baked in at a pinned release and tool self-updates are off
+  (`deploy/compose/artex-offline`).
+- `lab.sh up` generates secrets, builds everything, waits for health, performs
+  ARTEX's first-run claim (it reads the one-time setup token from the ARTEX log
+  and calls `POST /api/auth/init`), forces ARTEX web search off, and checks
+  that Snare can log in to ARTEX. `lab.sh test` runs the isolation test from
+  inside the ARTEX container and the Go client's integration test against the
+  real container.
 
 ## ARTEX interface
 

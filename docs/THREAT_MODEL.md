@@ -31,6 +31,7 @@ Initial version (M0). It is extended as each component lands.
 | ARTEX to Snare (webhook) | Shared-secret header, idempotent processing, webhook treated as a hint and re-fetched from the API | M3 |
 | ARTEX output to compiler | Findings are data; deterministic templates; any model draft is only a candidate | M4 |
 | Snare to ARTEX (active mode) | Ownership verification before every task; forced brakes; refusal tested | M7 |
+| ARTEX to the internet (lab) | Internal-only networks; allowlisting egress proxy for the LLM host; isolation test from inside the container | M0 |
 | Operator to Snare API | Bearer token, loopback bind by default | M0 |
 | Code to action log | Append-only triggers, actor limited to `policy` or `human` | M0 |
 
@@ -47,8 +48,10 @@ Initial version (M0). It is extended as each component lands.
 - **Cheap models shrink the cost per decision.** The tarpit's main value is
   time, occupied worker slots, operator attention, runs that end with nothing,
   and fingerprinting telemetry, more than money burned.
-- **The lab's ARTEX has internet egress** for its LLM provider. Targets are
-  restricted by ownership verification and task scope (M7), not by the
-  network.
+- **The lab's ARTEX can reach its LLM provider.** The network is the boundary:
+  ARTEX is on internal-only networks and its single way out is an allowlisting
+  proxy that permits only the configured LLM hosts. A compromised ARTEX could
+  still send data to that LLM host; that is inherent in using a hosted model.
+  A local model (Ollama on the lab network) removes even that path.
 - **A root attacker on the Snare host** can read the key file and the
   database. Snare does not defend against a compromised host.

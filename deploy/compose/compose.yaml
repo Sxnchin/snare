@@ -1,18 +1,20 @@
 # Snare development lab. Everything here is local; nothing is exposed beyond
 # 127.0.0.1 on the host.
 #
-#   ./lab.sh up      build, start, wait for health, bootstrap ARTEX
-#   ./lab.sh status  print health of every service
-#   ./lab.sh down    stop (add -v to drop volumes)
+#   ./lab.sh up           build, start, wait for health, bootstrap ARTEX
+#   ./lab.sh status       print health of every service
+#   ./lab.sh test-egress  prove ARTEX can reach only the allowed LLM hosts
+#   ./lab.sh down         stop (add -v to drop volumes)
 #
-# Networks:
-#   lab        internal (no internet). snare, artex, juice-shop. ARTEX reaches
-#              Juice Shop either directly (benchmark run A) or through Snare's
-#              gateway (runs B and C).
-#   artex-db   internal. artex and postgres only.
-#   front      ordinary bridge so Snare's ports can be published on loopback.
-#   artex-out  ordinary bridge so ARTEX can reach the LLM API you configure.
-#              Juice Shop is on none of the outward networks.
+# The network is the boundary that keeps ARTEX on lab targets. ARTEX is
+# attached only to internal networks, which have no route to the internet:
+#
+#   lab          internal  snare, juice-shop, artex
+#   artex-db     internal  artex, postgres
+#   llm-egress   internal  artex, egress   (ARTEX_LLM_PROXY=http://egress:3128)
+#   artex-admin  internal  artex, artex-ui
+#   outbound     bridge    egress only: the single way out, allowlisted hosts only
+#   front        bridge    snare, artex-ui: host loopback port publishing
 name: snare-lab
 
 services:
@@ -46,29 +48,47 @@ services:
       retries: 20
     restart: unless-stopped
 
-  artex:
-    # Built from the pinned, unmodified ARTEX checkout next to this repo.
-    # See docs/ASSUMPTIONS.md for the pinned commit.
+  # Unmodified ARTEX, built from the pinned checkout next to this repo. Never
+  # started (scale 0); it exists so artex below can build its overlay on it.
+  artex-base:
     build:
       context: ${ARTEX_SRC:-../../../ARTEX}
       args:
         ARTEX_VERSION: d89cf78
     image: snare-lab/artex:d89cf78
+    network_mode: none
+    scale: 0
+
+  artex:
+    # ARTEX plus the offline overlay (baked nuclei templates, update checks
+    # off). See artex-offline/Dockerfile.
+    build:
+      context: ./artex-offline
+      additional_contexts:
+        artex-base: service:artex-base
+      args:
+        ARTEX_IMAGE: artex-base
+    image: snare-lab/artex-offline:d89cf78
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [lab, artex-db, artex-out]
+      egress:
+        condition: service_healthy
+    networks: [lab, artex-db, llm-egress, artex-admin]
     environment:
       ARTEX_PG_DSN: postgres://artex:${POSTGRES_PASSWORD}@postgres:5432/artex?sslmode=disable
       ARTEX_JWT_KEY_DIR: /app/keys
+      # LLM settings are left to the operator. lab.sh never writes a key.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ARTEX_LLM_PROVIDER: ${ARTEX_LLM_PROVIDER:-}
       ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-}
       ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-}
-      ARTEX_LLM_PROXY: ${ARTEX_LLM_PROXY:-}
-      # Brakes. Snare forces these on in active mode (M7); the lab sets
-      # conservative defaults so a manual run is also braked.
+      # The only way out. A profile saved in ARTEX's UI without this proxy
+      # simply cannot connect: the network has no other route.
+      ARTEX_LLM_PROXY: http://egress:3128
+      # Brakes. Snare forces these on per task in active mode (M7); the lab
+      # sets conservative defaults so a manual run is also braked.
       ARTEX_NOISE_PROFILE: ${ARTEX_NOISE_PROFILE:-quiet}
       ARTEX_TASK_BUDGET_TOKENS: ${ARTEX_TASK_BUDGET_TOKENS:-2000000}
       ARTEX_TASK_BUDGET_TURNS: ${ARTEX_TASK_BUDGET_TURNS:-400}
@@ -76,11 +96,9 @@ services:
       ARTEX_INTENT_BUDGET_TURNS: ${ARTEX_INTENT_BUDGET_TURNS:-40}
       ARTEX_UNTRUSTED_BOUNDARY: ""
       ARTEX_UPDATE_CHECK: ""
-    # The container's CMD already listens on :8787 inside its own network
-    # namespace (equivalent to ARTEX_BIND_ADDR=0.0.0.0 on the compose network).
-    # On the host it is published on loopback only.
-    ports:
-      - "127.0.0.1:8787:8787"
+    # No ports: ARTEX is on internal networks only. Its UI reaches the host
+    # through artex-ui. Its recording proxy (8788) is not reachable from
+    # outside the container at all.
     volumes:
       - artex-data:/app/data
       - artex-keys:/app/keys
@@ -90,6 +108,44 @@ services:
       timeout: 3s
       retries: 60
       start_period: 20s
+    restart: unless-stopped
+
+  # Allowlisting CONNECT proxy: ARTEX's only route to the internet.
+  egress:
+    build:
+      context: ../..
+    image: snare-lab/snare:dev
+    entrypoint: ["/usr/local/bin/labnet", "egress", "-listen", ":3128"]
+    command: []
+    environment:
+      LLM_EGRESS_ALLOW: ${LLM_EGRESS_ALLOW:-api.openai.com,api.anthropic.com}
+    networks: [llm-egress, outbound]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/labnet", "probe", "-url", "http://127.0.0.1:3128/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # Fixed-destination forwarder that publishes ARTEX's UI on host loopback.
+  # It only ever dials artex:8787, so ARTEX cannot use it to get out.
+  artex-ui:
+    build:
+      context: ../..
+    image: snare-lab/snare:dev
+    depends_on:
+      egress:
+        condition: service_started
+    entrypoint: ["/usr/local/bin/labnet", "forward", "-listen", ":8787", "-to", "artex:8787"]
+    command: []
+    networks: [artex-admin, front]
+    ports:
+      - "127.0.0.1:8787:8787"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/labnet", "probe", "-url", "http://127.0.0.1:8787/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
     restart: unless-stopped
 
   snare:
@@ -122,8 +178,12 @@ networks:
     internal: true
   artex-db:
     internal: true
+  llm-egress:
+    internal: true
+  artex-admin:
+    internal: true
+  outbound: {}
   front: {}
-  artex-out: {}
 
 secrets:
   snare_api_token:

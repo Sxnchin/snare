@@ -11,10 +11,14 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
     go build -trimpath -ldflags "-s -w -X main.version=${SNARE_VERSION}" -o /out/snare ./cmd/snare \
+ && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+    go build -trimpath -ldflags "-s -w" -o /out/labnet ./cmd/labnet \
  && mkdir -p /out/var/lib/snare
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/snare /usr/local/bin/snare
+# Lab-only network helpers (egress allowlist proxy, loopback forwarder).
+COPY --from=build /out/labnet /usr/local/bin/labnet
 # Owned by the nonroot user so a named volume mounted here is writable.
 COPY --from=build --chown=65532:65532 /out/var/lib/snare /var/lib/snare
 USER 65532:65532

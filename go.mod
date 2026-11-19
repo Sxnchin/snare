@@ -1,3 +1,5 @@
+// TODO(rename): "Snare" is a working name that collides with existing security
+// products. The module path is a placeholder; see docs/ASSUMPTIONS.md.
 module github.com/snare-dev/snare
 
 go 1.26.10
