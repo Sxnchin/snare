@@ -1,0 +1,19 @@
+# gitleaks configuration: the built-in rules, plus one path-scoped allowlist
+# for recorded lab test data. Picked up automatically by gitleaks (CI, the
+# pre-commit hook and manual runs) from the repository root.
+
+[extend]
+useDefault = true
+
+# Recorded ARTEX runs against the lab's Juice Shop (bench/fixtures/<target>-
+# capture-v<N>/). Their secret-looking values are lab data, reviewed in each
+# capture's README: JWTs the lab Juice Shop issued (its signing key is public
+# in Juice Shop source), JWTs ARTEX forged as exploit payloads, and Juice
+# Shop's leaked demo-user password hashes. Only the two rules those values
+# trigger are allowed, and only inside capture directories; every other rule
+# still applies there. The real guard against a lab secret landing in a
+# fixture is `snare fixture export -forbid`, which refuses to write one.
+[[allowlists]]
+description = "lab capture fixtures: Juice Shop tokens and leaked demo data"
+targetRules = ["jwt", "generic-api-key"]
+paths = ['''^bench/fixtures/[a-z0-9-]+-capture-v[0-9]+/''']

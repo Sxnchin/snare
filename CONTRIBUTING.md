@@ -59,10 +59,16 @@ in the same change:
   `<file>:<rule>:<line>` for working-tree scans.
 
 Scans open compressed files (`--max-archive-depth 2`), so a gzipped fixture
-is checked like any other. Recorded attack traffic under `bench/fixtures/`
-holds the lab app's own tokens and leaked demo data; allowlist each value
-there only after checking what it is, and say what it is in the comment
-above its entries (see the existing capture entries).
+is checked like any other.
+
+Recorded lab captures (`bench/fixtures/<target>-capture-v<N>/`) are the one
+exception to per-value allowlisting: they hold hundreds of the lab app's own
+tokens and leaked demo data, and per-line fingerprints would be unwieldy.
+`.gitleaks.toml` allows only the `jwt` and `generic-api-key` rules inside
+those directories; every other rule still applies there. Before adding a
+capture, check what each flagged value is and list the classes in the
+capture's README. Export captures with `snare fixture export -forbid` for
+every lab secret: that refusal, not the allowlist, keeps lab secrets out.
 
 Never allowlist a real credential. If one is committed, treat it as leaked:
 rotate it first, then remove it.

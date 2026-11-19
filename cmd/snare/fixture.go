@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -42,6 +43,7 @@ func cmdFixture(args []string, stdout, stderr io.Writer) int {
 	out := fs.String("out", "", "output directory (created; must be empty or new)")
 	var forbid multiFlag
 	fs.Var(&forbid, "forbid", "file holding a secret that must not appear in any exported file (repeatable)")
+	trafficHost := fs.String("artex-traffic-host", "", "also export ARTEX's own recorded exchanges to this host made while the task ran (artex_traffic.json)")
 	capture := fs.String("capture", "", "Snare scanner capture (JSON Lines) of the same run: stored gzipped, and matched to each finding's evidence")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
@@ -64,6 +66,12 @@ func cmdFixture(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "fixture export:", err)
 		return 1
+	}
+	if *trafficHost != "" {
+		if files["artex_traffic.json"], err = exportTraffic(context.Background(), c, files["task.json"], *trafficHost); err != nil {
+			fmt.Fprintln(stderr, "fixture export:", err)
+			return 1
+		}
 	}
 	var gz []byte
 	if *capture != "" {
@@ -357,4 +365,59 @@ func matchEvidence(files map[string][]byte, lines []captureLine) error {
 		files[name] = b
 	}
 	return nil
+}
+
+// exportTraffic returns ARTEX's recorded exchanges to host whose timestamp
+// falls between the task's creation and completion (one-second resolution,
+// as ARTEX records them), oldest first, each with its full request and
+// response.
+func exportTraffic(ctx context.Context, c *artex.Client, taskJSON []byte, host string) ([]byte, error) {
+	var task struct {
+		Created   int64 `json:"created_unix"`
+		Completed int64 `json:"completed_unix"`
+	}
+	if err := json.Unmarshal(taskJSON, &task); err != nil {
+		return nil, fmt.Errorf("task.json: %w", err)
+	}
+	if task.Created == 0 || task.Completed == 0 {
+		return nil, errors.New("task has no creation or completion time; is it finished?")
+	}
+	type meta struct {
+		ID string `json:"id"`
+		TS string `json:"ts"`
+	}
+	var all []meta
+	for page := 0; ; page++ {
+		var resp struct {
+			Total     int    `json:"total"`
+			Exchanges []meta `json:"exchanges"`
+		}
+		path := fmt.Sprintf("/api/traffic?host=%s&page=%d&size=200&sort=ts&order=asc", url.QueryEscape(host), page)
+		if err := c.Authed(ctx, "GET", path, nil, &resp); err != nil {
+			return nil, fmt.Errorf("GET %s: %w", path, err)
+		}
+		all = append(all, resp.Exchanges...)
+		if len(resp.Exchanges) == 0 || len(all) >= resp.Total || page > 500 {
+			break
+		}
+	}
+	type exchangeDoc struct {
+		TrafficID string          `json:"traffic_id"`
+		TS        string          `json:"ts"`
+		Exchange  json.RawMessage `json:"exchange"`
+	}
+	var out []exchangeDoc
+	for _, m := range all {
+		t, err := time.Parse(time.RFC3339, m.TS)
+		if err != nil || t.Unix() < task.Created || t.Unix() > task.Completed {
+			continue
+		}
+		var raw json.RawMessage
+		if err := c.Authed(ctx, "GET", "/api/traffic/exchange?id="+url.QueryEscape(m.ID), nil, &raw); err != nil {
+			return nil, fmt.Errorf("exchange %s: %w", m.ID, err)
+		}
+		out = append(out, exchangeDoc{TrafficID: m.ID, TS: m.TS, Exchange: raw})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].TS < out[j].TS })
+	return json.Marshal(out)
 }

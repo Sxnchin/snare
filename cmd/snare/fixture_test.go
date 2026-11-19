@@ -19,7 +19,16 @@ func fakeArtex(t *testing.T, leak string) *httptest.Server {
 	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"token":"t"}`))
 	})
-	mux.HandleFunc("GET /api/tasks/7", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"id":"7","name":"x"}`)) })
+	mux.HandleFunc("GET /api/tasks/7", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"7","name":"x","created_unix":100,"completed_unix":200}`))
+	})
+	mux.HandleFunc("GET /api/traffic", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("host") != "snare" || r.URL.Query().Get("page") != "0" {
+			_, _ = w.Write([]byte(`{"total":2,"exchanges":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"total":2,"exchanges":[{"id":"in-window","ts":"1970-01-01T00:02:30Z"},{"id":"after","ts":"1970-01-01T00:05:00Z"}]}`))
+	})
 	mux.HandleFunc("GET /api/tasks/7/outcome", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"task_id":7,"tokens":{"input_tokens":10,"output_tokens":2}}`))
 	})
@@ -124,5 +133,24 @@ func TestMatchEvidence(t *testing.T) {
 	}
 	if len(ev.SnareMatched) != 2 || ev.SnareMatched[0].Line != 2 || ev.SnareMatched[1].Line != 3 || ev.MatchRule == "" {
 		t.Fatalf("matches %+v", ev.SnareMatched)
+	}
+}
+
+func TestExportTraffic(t *testing.T) {
+	srv := fakeArtex(t, "x")
+	c := artex.New(srv.URL, "ARTEX", func() (string, error) { return "pw-0123456789", nil }, 5*time.Second)
+	files, err := exportTask(t.Context(), c, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := exportTraffic(t.Context(), c, files["task.json"], "snare")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []struct {
+		TrafficID string `json:"traffic_id"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil || len(got) != 1 || got[0].TrafficID != "in-window" {
+		t.Fatalf("want only the exchange inside the task window, got %s", b)
 	}
 }

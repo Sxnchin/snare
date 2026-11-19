@@ -1,0 +1,21 @@
+{
+  "finding_id": "19",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 73,
+      "time": "2026-11-19T20:04:21.818984168Z",
+      "method": "GET",
+      "path": "/rest/memories",
+      "status": 200
+    },
+    {
+      "line": 78,
+      "time": "2026-11-19T20:05:36.887521592Z",
+      "method": "GET",
+      "path": "/rest/memories",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

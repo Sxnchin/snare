@@ -1,0 +1,84 @@
+{
+  "finding_id": "14",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 11,
+      "time": "2026-11-19T20:02:23.489650877Z",
+      "method": "POST",
+      "path": "/api/Users",
+      "status": 201
+    },
+    {
+      "line": 12,
+      "time": "2026-11-19T20:02:23.545319961Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 14,
+      "time": "2026-11-19T20:02:26.342528795Z",
+      "method": "GET",
+      "path": "/rest/basket/11",
+      "status": 200
+    },
+    {
+      "line": 15,
+      "time": "2026-11-19T20:02:26.561337004Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 200
+    },
+    {
+      "line": 16,
+      "time": "2026-11-19T20:02:26.769959421Z",
+      "method": "GET",
+      "path": "/rest/basket/2",
+      "status": 200
+    },
+    {
+      "line": 31,
+      "time": "2026-11-19T20:02:37.158684426Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 401
+    },
+    {
+      "line": 32,
+      "time": "2026-11-19T20:02:38.174444009Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 33,
+      "time": "2026-11-19T20:02:38.34071901Z",
+      "method": "GET",
+      "path": "/rest/basket/1",
+      "status": 401
+    },
+    {
+      "line": 39,
+      "time": "2026-11-19T20:02:41.713737886Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 47,
+      "time": "2026-11-19T20:02:47.661525208Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 113,
+      "time": "2026-11-19T20:06:58.14004263Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

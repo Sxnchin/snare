@@ -1,0 +1,29 @@
+{
+  "finding_id": "15",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 40,
+      "time": "2026-11-19T20:02:42.321531428Z",
+      "method": "PUT",
+      "path": "/api/BasketItems/1",
+      "status": 200
+    },
+    {
+      "line": 41,
+      "time": "2026-11-19T20:02:42.340457595Z",
+      "method": "GET",
+      "path": "/api/BasketItems/",
+      "query": "BasketId=1",
+      "status": 200
+    },
+    {
+      "line": 42,
+      "time": "2026-11-19T20:02:42.474545845Z",
+      "method": "PUT",
+      "path": "/api/BasketItems/1",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

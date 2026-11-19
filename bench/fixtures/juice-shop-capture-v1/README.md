@@ -15,7 +15,7 @@ is `v2`.
 | Model | DeepSeek `deepseek-flash` through the OpenAI-compatible API |
 | Budget | ARTEX task budget 2,000,000 tokens (input plus output), hard stop 2,400,000, wall-clock limit 5400 s |
 | Used | 2,225,160 input tokens (2,035,328 of them cache reads), 78,621 output tokens, 49 tool calls, 296 s wall time |
-| Cost | at most $0.3809 (every input token priced at $0.15/M; cache reads are billed lower) |
+| Cost | estimated actual $0.0818 (cache reads at the $0.003/M cache-hit rate); upper bound $0.3809 (every input token at $0.15/M) |
 | Started by | `deploy/compose/lab.sh capture-run --yes` |
 | Exported by | `snare fixture export -task 1 -capture ... -forbid <each lab secret>` |
 
@@ -77,8 +77,8 @@ the budget ran out (outcome: 11 open, 0 confirmed).
 
 ## Secret-looking values (reviewed 2026-11-19)
 
-Every value gitleaks flags here is lab data, allowlisted by fingerprint in
-`.gitleaksignore` with what it is:
+Every value gitleaks flags here is lab data, allowed by the path-scoped
+allowlist in `.gitleaks.toml` (rules `jwt` and `generic-api-key` only):
 
 - JWTs the lab Juice Shop issued to lab users (Juice Shop's signing key is
   public in its source);

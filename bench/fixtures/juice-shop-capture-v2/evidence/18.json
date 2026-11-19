@@ -1,0 +1,14 @@
+{
+  "finding_id": "18",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 49,
+      "time": "2026-11-19T20:02:48.129267667Z",
+      "method": "GET",
+      "path": "/api/Complaints",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

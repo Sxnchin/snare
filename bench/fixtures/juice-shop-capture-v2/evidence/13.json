@@ -1,0 +1,126 @@
+{
+  "finding_id": "13",
+  "artex_bound": [],
+  "snare_matched": [
+    {
+      "line": 7,
+      "time": "2026-11-19T20:02:20.330647876Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 401
+    },
+    {
+      "line": 12,
+      "time": "2026-11-19T20:02:23.545319961Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 24,
+      "time": "2026-11-19T20:02:30.944057214Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 200
+    },
+    {
+      "line": 31,
+      "time": "2026-11-19T20:02:37.158684426Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 401
+    },
+    {
+      "line": 32,
+      "time": "2026-11-19T20:02:38.174444009Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 39,
+      "time": "2026-11-19T20:02:41.713737886Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 44,
+      "time": "2026-11-19T20:02:43.652394637Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 200
+    },
+    {
+      "line": 47,
+      "time": "2026-11-19T20:02:47.661525208Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 56,
+      "time": "2026-11-19T20:03:33.493589507Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 200
+    },
+    {
+      "line": 94,
+      "time": "2026-11-19T20:05:55.522787128Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 401
+    },
+    {
+      "line": 96,
+      "time": "2026-11-19T20:05:56.143040087Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 200
+    },
+    {
+      "line": 100,
+      "time": "2026-11-19T20:05:57.626070671Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 200
+    },
+    {
+      "line": 103,
+      "time": "2026-11-19T20:05:59.001127672Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 401
+    },
+    {
+      "line": 107,
+      "time": "2026-11-19T20:06:00.948225089Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 401
+    },
+    {
+      "line": 109,
+      "time": "2026-11-19T20:06:02.334342548Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 200
+    },
+    {
+      "line": 113,
+      "time": "2026-11-19T20:06:58.14004263Z",
+      "method": "POST",
+      "path": "/rest/user/login",
+      "status": 200
+    },
+    {
+      "line": 114,
+      "time": "2026-11-19T20:07:07.143475676Z",
+      "method": "GET",
+      "path": "/api/Users",
+      "status": 200
+    }
+  ],
+  "snare_match_rule": "a request line in the finding's evidence, summary or name (METHOD /path or METHOD http://host/path) with the same method and path as the captured request"
+}

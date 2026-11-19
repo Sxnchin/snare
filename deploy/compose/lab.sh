@@ -482,12 +482,18 @@ test_corpus_exclusion() {
 }
 
 # ---------------------------------------------------------------- LLM runs ---
-# Prices per million tokens (deepseek-flash). Peak is 01:00-04:00 and
-# 06:00-10:00 UTC on weekdays, at double the rate. ARTEX reports input tokens
-# with cache hits already folded in, so pricing every input token at the
-# input rate is an upper bound.
+# Prices per million tokens (deepseek-flash, off-peak): input on a cache miss,
+# input on a cache hit, output. Peak (01:00-04:00 and 06:00-10:00 UTC on
+# weekdays) doubles every rate. ARTEX's input_tokens include its
+# cache_read_tokens, so two figures are kept: the upper bound prices every
+# input token as a miss, the estimated actual prices cache reads as hits.
 PRICE_IN=0.15
+PRICE_CACHE=0.003
 PRICE_OUT=0.60
+# Shares seen in the first capture run, for estimating a run before it
+# starts: cache reads as a share of input, output as a share of all tokens.
+EST_CACHE_SHARE=0.915
+EST_OUT_SHARE=0.034
 SPEND_FILE=../../bench/results/llm-spend.md
 
 # is_peak [epoch] prints 1 during DeepSeek peak hours, else 0.
@@ -506,9 +512,27 @@ llm_key_present() { grep -qE '^OPENAI_API_KEY=.+' .env; }
 # from ARTEX's outcome endpoint.
 outcome_json() { curl -fsS -H "Authorization: Bearer $(artex_token)" "$ARTEX_API/api/tasks/$1/outcome"; }
 jnum() { sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p" <<<"$2" | head -1; }
-cost_of() { # input output peak(0|1) -> dollars
+cost_upper() { # input output peak(0|1) -> dollars, every input token a cache miss
   awk -v i="$1" -v o="$2" -v p="$3" -v pi="$PRICE_IN" -v po="$PRICE_OUT" \
     'BEGIN { m = (p == 1) ? 2 : 1; printf "%.4f", (i * pi + o * po) * m / 1e6 }'
+}
+cost_actual() { # input cache_read output peak(0|1) -> dollars, cache reads at the hit rate
+  awk -v i="$1" -v c="$2" -v o="$3" -v p="$4" -v pi="$PRICE_IN" -v pc="$PRICE_CACHE" -v po="$PRICE_OUT" \
+    'BEGIN { m = (p == 1) ? 2 : 1; printf "%.4f", ((i - c) * pi + c * pc + o * po) * m / 1e6 }'
+}
+# estimate TOTAL_TOKENS PEAK prints "upper actual" for a run of that size,
+# using the shares from the first capture run.
+estimate() {
+  local out inp cache
+  out=$(awk -v t="$1" -v s="$EST_OUT_SHARE" 'BEGIN { printf "%d", t * s }')
+  inp=$(( $1 - out ))
+  cache=$(awk -v i="$inp" -v s="$EST_CACHE_SHARE" 'BEGIN { printf "%d", i * s }')
+  echo "$(cost_upper "$inp" "$out" "$2") $(cost_actual "$inp" "$cache" "$out" "$2")"
+}
+# artex_budget prints ARTEX's task token budget from its container env.
+artex_budget() {
+  docker inspect "$("${COMPOSE[@]}" ps -q artex)" --format '{{range .Config.Env}}{{println .}}{{end}}' |
+    sed -n 's/^ARTEX_TASK_BUDGET_TOKENS=//p'
 }
 
 # capture-run: the one recorded ARTEX run against Juice Shop through Snare.
@@ -517,7 +541,9 @@ cost_of() { # input output peak(0|1) -> dollars
 #      DeepSeek only, the model id exists (GET /models, no tokens), and that
 #      it is off-peak (--allow-peak overrides);
 #   2. restarts Snare with the scanner capture on;
-#   3. creates the ARTEX task (2M-token budget, wall-clock limit), scoped to
+#   3. sets ARTEX's task budget to --tokens (ARTEX reads it from its
+#      environment, so the container is recreated when it differs), checks
+#      ARTEX's traffic capture is on, creates the task (wall-clock limit), scoped to
 #      http://snare:8000, and polls the outcome every 60 s, pausing the task
 #      if tokens pass the hard stop;
 #   4. turns the capture off and copies the capture and outcome out to
@@ -526,24 +552,38 @@ CAPTURE_TOKENS=${CAPTURE_TOKENS:-2000000}
 CAPTURE_HARD_STOP=${CAPTURE_HARD_STOP:-2400000}
 CAPTURE_TIMEOUT=${CAPTURE_TIMEOUT:-5400}
 capture_run() {
-  local yes=0 allow_peak=0 a
-  for a in "$@"; do
-    case $a in --yes) yes=1 ;; --allow-peak) allow_peak=1 ;; *) die "capture-run: unknown option $a" ;; esac
+  local yes=0 allow_peak=0
+  while (( $# )); do
+    case $1 in
+      --yes) yes=1 ;;
+      --allow-peak) allow_peak=1 ;;
+      --tokens) CAPTURE_TOKENS=$2; shift ;;
+      --hard-stop) CAPTURE_HARD_STOP=$2; shift ;;
+      *) die "capture-run: unknown option $1" ;;
+    esac
+    shift
   done
-  local model allow peak
+  (( CAPTURE_HARD_STOP > CAPTURE_TOKENS )) || die "capture-run: --hard-stop must be above --tokens"
+  local model allow peak cur capture_on
   model=$(grep -E '^ARTEX_LLM_MODEL=' .env | cut -d= -f2- || true)
   allow=$(grep -E '^LLM_EGRESS_ALLOW=' .env | cut -d= -f2- || true)
   peak=$(is_peak)
-  local hi_off hi_peak typ_off
-  typ_off=$(cost_of $((CAPTURE_TOKENS * 95 / 100)) $((CAPTURE_TOKENS * 5 / 100)) 0)
-  hi_off=$(cost_of $((CAPTURE_HARD_STOP * 90 / 100)) $((CAPTURE_HARD_STOP * 10 / 100)) 0)
-  hi_peak=$(cost_of $((CAPTURE_HARD_STOP * 90 / 100)) $((CAPTURE_HARD_STOP * 10 / 100)) 1)
+  cur=$(artex_budget)
+  if curl -fsS -H "Authorization: Bearer $(artex_token)" "$ARTEX_API/api/settings" | grep -q '"traffic_capture":true'; then
+    capture_on="on (tools go through its proxy: scanner header, bound evidence)"
+  else capture_on="OFF: run ./lab.sh bootstrap first"; fi
+  local b_off h_off h_peak
+  b_off=$(estimate "$CAPTURE_TOKENS" 0); h_off=$(estimate "$CAPTURE_HARD_STOP" 0); h_peak=$(estimate "$CAPTURE_HARD_STOP" 1)
   cat <<EOF
 capture run plan
   target       http://snare:8000 (Juice Shop behind Snare; ARTEX cannot reach Juice Shop directly)
   model        ${model:-<unset>} via ${allow:-<unset>} (OpenAI-compatible API)
-  budget       $CAPTURE_TOKENS tokens (ARTEX task budget, input + output), hard stop at $CAPTURE_HARD_STOP, wall clock ${CAPTURE_TIMEOUT}s
-  cost         about \$$typ_off off-peak if the budget is used (95% input); at most about \$$hi_off off-peak, \$$hi_peak at peak, at the hard stop with 10% output
+  budget       $CAPTURE_TOKENS tokens (ARTEX task budget, input + output; ARTEX now has ${cur:-unset}$( [[ $cur == "$CAPTURE_TOKENS" ]] || echo ", will be set" )), hard stop at $CAPTURE_HARD_STOP, wall clock ${CAPTURE_TIMEOUT}s
+  ARTEX capture $capture_on
+  cost (USD)   upper bound (all input as cache misses) / estimated actual (cache share from run 1):
+                 budget used, off-peak      ${b_off% *} / ${b_off#* }
+                 at the hard stop, off-peak ${h_off% *} / ${h_off#* }
+                 at the hard stop, peak     ${h_peak% *} / ${h_peak#* }
   now          $(date -u +%Y-%m-%dT%H:%MZ) is $( ((peak)) && echo "PEAK (double price)" || echo off-peak)
   capture      Snare writes ARTEX's traffic to run/capture/<task>/scanner.jsonl
 EOF
@@ -551,8 +591,17 @@ EOF
   llm_key_present || die "OPENAI_API_KEY is empty in deploy/compose/.env"
   [[ $allow == api.deepseek.com:443 ]] || die "LLM_EGRESS_ALLOW must be exactly api.deepseek.com:443 (is '$allow')"
   if (( peak && !allow_peak )); then die "it is DeepSeek peak time (double price); wait, or pass --allow-peak"; fi
-  curl -fsS -H "Authorization: Bearer $(artex_token)" "$ARTEX_API/api/settings" | grep -q '"traffic_capture":true' ||
+  [[ $capture_on == on* ]] ||
     die "ARTEX traffic capture is off: tools would bypass its proxy (no scanner header, no bound evidence); run ./lab.sh bootstrap"
+  if [[ $(artex_budget) != "$CAPTURE_TOKENS" ]]; then
+    # Shell environment beats .env in compose interpolation; the next plain
+    # ./lab.sh up returns ARTEX to the .env or default budget.
+    ARTEX_TASK_BUDGET_TOKENS=$CAPTURE_TOKENS "${COMPOSE[@]}" up -d --wait artex >/dev/null
+    [[ $(artex_budget) == "$CAPTURE_TOKENS" ]] || die "could not set ARTEX's task budget to $CAPTURE_TOKENS"
+    log "ARTEX task budget set to $CAPTURE_TOKENS (container recreated)"
+    curl -fsS -H "Authorization: Bearer $(artex_token)" "$ARTEX_API/api/settings" | grep -q '"traffic_capture":true' ||
+      die "ARTEX traffic capture is off after the restart"
+  fi
 
   # The key is read inside the ARTEX container from its own environment and
   # handed to curl on stdin, so it is never on a command line or in output.
@@ -609,17 +658,17 @@ capture_watch() {
   local task=$1 file=$2 start=$3 dir=run/capture/$1
   mkdir -p "$dir"
 
-  local o in_t out_t calls wall status tok
+  local o in_t out_t cache calls wall status tok
   while :; do
     sleep 60
     o=$(outcome_json "$task") || continue
-    in_t=$(jnum input_tokens "$o"); out_t=$(jnum output_tokens "$o")
+    in_t=$(jnum input_tokens "$o"); out_t=$(jnum output_tokens "$o"); cache=$(jnum cache_read_tokens "$o")
     calls=$(jnum tool_calls "$o"); wall=$(jnum wall_seconds "$o")
     status=$(sed -n 's/.*"status":"\([a-z_]*\)".*/\1/p' <<<"$o" | head -1)
     tok=$(( ${in_t:-0} + ${out_t:-0} ))
-    printf '  %s  %-10s tokens %8d (in %d, out %d)  tool calls %4d  wall %5ds  ~$%s\n' \
-      "$(date -u +%H:%M)" "$status" "$tok" "${in_t:-0}" "${out_t:-0}" "${calls:-0}" "${wall:-0}" \
-      "$(cost_of "${in_t:-0}" "${out_t:-0}" "$(is_peak)")"
+    printf '  %s  %-8s tokens %8d (in %d, cache %d, out %d)  tool calls %4d  wall %5ds  $%s upper / $%s est.\n' \
+      "$(date -u +%H:%M)" "$status" "$tok" "${in_t:-0}" "${cache:-0}" "${out_t:-0}" "${calls:-0}" "${wall:-0}" \
+      "$(cost_upper "${in_t:-0}" "${out_t:-0}" "$(is_peak)")" "$(cost_actual "${in_t:-0}" "${cache:-0}" "${out_t:-0}" "$(is_peak)")"
     if (( tok > CAPTURE_HARD_STOP )); then
       curl -fsS -o /dev/null -H "Authorization: Bearer $(artex_token)" -H 'Content-Type: application/json' \
         --data '{"action":"pause"}' "$ARTEX_API/api/tasks/$task/control" || true
@@ -636,26 +685,34 @@ capture_watch() {
   "${COMPOSE[@]}" cp "snare:$file" "$dir/scanner.jsonl" >/dev/null
   chmod 600 "$dir/scanner.jsonl"
   log "capture off; $(wc -l < "$dir/scanner.jsonl" | tr -d ' ') exchanges in $dir/scanner.jsonl"
-  record_spend "$task" "capture run (Juice Shop through Snare, ${CAPTURE_TOKENS}-token budget)" "$start" "$(date -u +%s)"
+  record_spend "$task" "capture run (Juice Shop through Snare, $(artex_budget)-token budget)" "$start" "$(date -u +%s)"
 }
 
 # record_spend TASK DESCRIPTION START END appends one row to the spend log
 # from ARTEX's outcome. A run that touches peak hours is priced at peak.
 record_spend() {
-  local task=$1 what=$2 start=$3 end=$4 o in_t out_t calls wall peak=0 t cost
+  local task=$1 what=$2 start=$3 end=$4 o in_t out_t cache calls wall peak=0 t upper actual
   o=$(outcome_json "$task")
-  in_t=$(jnum input_tokens "$o"); out_t=$(jnum output_tokens "$o")
+  in_t=$(jnum input_tokens "$o"); out_t=$(jnum output_tokens "$o"); cache=$(jnum cache_read_tokens "$o")
   calls=$(jnum tool_calls "$o"); wall=$(jnum wall_seconds "$o")
   for (( t = start; t <= end; t += 600 )); do (( $(is_peak "$t") )) && peak=1; done
   (( $(is_peak "$end") )) && peak=1
-  cost=$(cost_of "${in_t:-0}" "${out_t:-0}" "$peak")
-  printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' "$(date -u -r "$start" +%Y-%m-%dT%H:%MZ 2>/dev/null || date -u -d "@$start" +%Y-%m-%dT%H:%MZ)" \
-    "$task" "$what" "${in_t:-0}" "${out_t:-0}" "${calls:-0}" "${wall:-0}" "$( ((peak)) && echo peak || echo off-peak)" "\$$cost" >> "$SPEND_FILE"
-  local total runs
-  total=$(awk -F'|' '/^\| 20[0-9][0-9]-/ { gsub(/[ $]/, "", $10); t += $10; n++ } END { printf "%.4f %d", t, n }' "$SPEND_FILE")
-  runs=${total#* }; total=${total% *}
-  sed -i.bak "s/^Total so far: .*/Total so far: \$$total of \$5.00 ($runs runs)/" "$SPEND_FILE" && rm -f "$SPEND_FILE.bak"
-  log "spend recorded in bench/results/llm-spend.md: \$$cost this run, \$$total in total"
+  upper=$(cost_upper "${in_t:-0}" "${out_t:-0}" "$peak")
+  actual=$(cost_actual "${in_t:-0}" "${cache:-0}" "${out_t:-0}" "$peak")
+  printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' "$(date -u -r "$start" +%Y-%m-%dT%H:%MZ 2>/dev/null || date -u -d "@$start" +%Y-%m-%dT%H:%MZ)" \
+    "$task" "$what" "${in_t:-0}" "${cache:-0}" "${out_t:-0}" "${calls:-0}" "${wall:-0}" "$( ((peak)) && echo peak || echo off-peak)" "\$$upper" "\$$actual" >> "$SPEND_FILE"
+  spend_total
+  log "spend recorded in bench/results/llm-spend.md: \$$actual estimated actual (\$$upper upper bound) this run"
+}
+
+# spend_total rewrites the "Total so far" line from the table rows.
+spend_total() {
+  local sums
+  sums=$(awk -F'|' '/^\| 20[0-9][0-9]-/ { u = $11; a = $12; gsub(/[ $]/, "", u); gsub(/[ $]/, "", a); tu += u; ta += a; n++ }
+    END { printf "%.4f %.4f %d", ta, tu, n }' "$SPEND_FILE")
+  set -- $sums
+  sed -i.bak "s/^Total so far: .*/Total so far: \$$1 estimated actual, \$$2 upper bound, of \$5.00 ($3 runs)/" "$SPEND_FILE" && rm -f "$SPEND_FILE.bak"
+  log "total so far: \$$1 estimated actual, \$$2 upper bound"
 }
 
 # test_login runs the Go client's integration test against the real ARTEX.
@@ -725,6 +782,7 @@ case $cmd in
   test-exclusion) ensure_env; test_corpus_exclusion ;;
   capture-run) ensure_env; capture_run "$@" ;;
   capture-watch) ensure_env; capture_watch "$@" ;;
+  spend-total) ensure_env; spend_total ;;
   traffic) ensure_env; traffic "$@" ;;
   latency) ensure_env; latency "$@" ;;
   corpus-check) ensure_env; corpus_check ;;
